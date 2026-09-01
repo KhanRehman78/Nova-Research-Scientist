@@ -1,0 +1,38 @@
+project_id = "ykmpvokuleuefafcboip"
+
+[api]
+enabled = true
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/**"]
+
+[functions.research-manager]
+verify_jwt = true
+
+[functions.search-agent]
+verify_jwt = true
+
+[functions.paper-reader]
+verify_jwt = true
+
+[functions.reasoning-gap]
+verify_jwt = true
+
+[functions.scientist-hypothesis]
+verify_jwt = true
+
+[functions.report-writer]
+verify_jwt = true
+
+[functions.invite-member]
+verify_jwt = true
+
+[functions.writing-assistant]
+verify_jwt = true
+
+[functions.paper-validator]
+verify_jwt = true

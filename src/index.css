@@ -1,0 +1,177 @@
+@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Crimson+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Atkinson Hyperlegible", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: "Crimson Pro", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Dark research-console palette (user-directed — see MASTER.md) */
+  --color-primary: #22d3ee;      /* electric cyan */
+  --color-on-primary: #04121a;   /* near-black on cyan */
+  --color-secondary: #a78bfa;    /* soft violet */
+  --color-accent: #5eead4;       /* mint highlight */
+  --color-background: #070b14;   /* deep navy, near black */
+  --color-foreground: #e7ecf7;   /* cool off-white */
+  --color-muted: #131a2b;        /* dark panel */
+  --color-border: #233049;       /* steel border */
+  --color-destructive: #f87171;  /* soft red */
+  --color-ring: #22d3ee;
+
+  --color-panel: #0b1120;
+  --color-panel-2: #101a30;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle dot-grid + radial glow backdrop (dark research console) */
+.bg-dotgrid-glow {
+  background-color: var(--color-background);
+  background-image:
+    radial-gradient(
+      circle at 50% -10%,
+      oklch(0.75 0.15 200 / 16%) 0%,
+      oklch(0.75 0.15 200 / 7%) 24%,
+      oklch(0.75 0.15 200 / 3%) 38%,
+      transparent 52%
+    ),
+    radial-gradient(
+      circle at 88% 108%,
+      oklch(0.65 0.2 290 / 12%) 0%,
+      transparent 42%
+    ),
+    radial-gradient(oklch(0.7 0.08 230 / 6%) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    20px 20px;
+  background-position: center, center, center;
+}
+
+/* Glassy translucent panel */
+.glass-panel {
+  background: linear-gradient(
+    160deg,
+    oklch(0.22 0.03 250 / 55%),
+    oklch(0.16 0.02 255 / 72%)
+  );
+  border: 1px solid oklch(0.35 0.04 250 / 35%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px oklch(0.05 0.02 250 / 45%);
+}
+
+.glass-soft {
+  background: oklch(0.18 0.02 255 / 55%);
+  border: 1px solid oklch(0.32 0.03 250 / 30%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.text-glow-cyan {
+  text-shadow: 0 0 18px oklch(0.75 0.15 200 / 45%);
+}
+.text-glow-violet {
+  text-shadow: 0 0 18px oklch(0.65 0.2 290 / 45%);
+}
+
+/* Scanline / streaming progress shimmer */
+@keyframes nova-scan {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.scanline {
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    oklch(0.75 0.15 200 / 14%) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: nova-scan 2.4s linear infinite;
+}
+
+@keyframes nova-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-pulse-soft {
+  animation: nova-pulse 1.6s ease-in-out infinite;
+}
+
+/* Custom scrollbars for the console feel */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+  border: 2px solid var(--color-background);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scanline,
+  .animate-pulse-soft {
+    animation: none;
+  }
+}
+
+/* Print: only the report content, on white */
+@media print {
+  body {
+    background: #fff;
+    color: #111;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .nova-print,
+  .nova-print * {
+    visibility: visible;
+  }
+  .nova-print {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 0;
+  }
+  .nova-print .glass-panel {
+    background: #fff;
+    border: 1px solid #ddd;
+    box-shadow: none;
+  }
+  .nova-print .font-heading {
+    color: #111;
+  }
+}

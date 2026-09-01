@@ -1,0 +1,2 @@
+-- Remote baseline created before this workspace was exported.
+-- Its objects are reconciled and hardened by the following NOVA migration.
