@@ -84,7 +84,7 @@ export async function fetchWithRetry(
         ...options,
         signal: ctrl.signal,
         headers: {
-          "User-Agent": "NOVA-Research-Engine/1.0 (mailto:hello@nova.research)",
+          "User-Agent": "NOVA-Research-Engine/1.0 (mailto:hello@tecodify.com)",
           ...(options.headers ?? {}),
         },
       });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3, BookOpenCheck, BrainCircuit, BriefcaseBusiness, CalendarRange,
-  GraduationCap, LibraryBig, Network, NotebookPen, RefreshCcw, SearchCheck,
+  Globe2, GraduationCap, LibraryBig, Network, NotebookPen, RefreshCcw, SearchCheck,
   ShieldCheck, Sparkles, Upload, UserRoundSearch, UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -36,6 +36,7 @@ const ACTIONS: ActionMeta[] = [
   { action: "literature_intelligence", label: "Literature Intelligence", description: "Clusters, citation leaders, methods and future directions within a selected corpus.", icon: Network, requiresRun: true, professorOnly: true },
   { action: "peer_review", label: "Structured Peer Reviewer", description: "Pre-submission scores, major/minor issues and conservative readiness recommendation.", icon: BookOpenCheck, requiresManuscript: true, professorOnly: true },
   { action: "grant_proposal", label: "Grant Proposal Studio", description: "Work packages, timeline, estimated budget, risks and compliance checks.", icon: BriefcaseBusiness, requiresRun: true, professorOnly: true },
+  { action: "global_grant_search", label: "Global Grant Discovery", description: "Live public opportunities, global funder profiles and official regional funding portals.", icon: Globe2 },
   { action: "collaborator_finder", label: "Collaborator Finder", description: "Candidate authors derived from exact corpus records; identity and contact remain unverified.", icon: UserRoundSearch, requiresRun: true, professorOnly: true },
   { action: "supervision_feedback", label: "Supervision Assistant", description: "Evidence-based progress summary, risks, actions and questions for a student.", icon: UsersRound, requiresAssignment: true, professorOnly: true },
 ];
@@ -201,7 +202,11 @@ export function ProfessionalStudio() {
       funding_program: selectedAction === "grant_proposal" ? fundingProgram : undefined,
       currency: selectedAction === "grant_proposal" ? currency : undefined,
     };
-    const { data, error: invokeError } = await supabase.functions.invoke("professional-agent", { body: payload });
+    const functionName = selectedAction === "global_grant_search" ? "open-research" : "professional-agent";
+    const functionPayload = selectedAction === "global_grant_search"
+      ? { action: "global_grant_search", project_id: projectId, run_id: selectedRun || undefined, query: goal }
+      : payload;
+    const { data, error: invokeError } = await supabase.functions.invoke(functionName, { body: functionPayload });
     setBusy(null);
     if (invokeError || data?.error) { setError(data?.error || invokeError?.message || "Professional workflow failed"); return; }
     setResult(data.record as RoleAgentOutput);
@@ -314,7 +319,7 @@ export function ProfessionalStudio() {
           {selectedAssignment ? <div className="mt-5 grid gap-3 rounded-2xl border border-border bg-panel/50 p-4 md:grid-cols-4"><select value={assignmentSection} onChange={(event) => setAssignmentSection(event.target.value)} className={FIELD}>{["topic","proposal","literature","methodology","data","analysis","writing","submission"].map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select><select value={assignmentStatus} onChange={(event) => setAssignmentStatus(event.target.value)} className={FIELD}>{["not_started","in_progress","needs_review","approved","blocked"].map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select><label className="text-xs text-foreground/55">Progress {assignmentProgress}%<input type="range" min="0" max="100" value={assignmentProgress} onChange={(event) => setAssignmentProgress(Number(event.target.value))} className="mt-2 w-full accent-primary" /></label><div className="md:col-span-3"><textarea value={assignmentNote} onChange={(event) => setAssignmentNote(event.target.value)} rows={3} placeholder="Evidence, feedback, decision or blocker…" className={`${FIELD} resize-y`} /></div><Button onClick={() => void addUpdate()} disabled={busy === "update" || !assignmentNote.trim()}>{busy === "update" ? <Spinner size={14} /> : <NotebookPen size={14} />}Record update</Button></div> : null}
         </section>
 
-        {professor && analytics ? <section className="mt-8"><div className="mb-4 flex items-center gap-2"><BarChart3 size={20} className="text-secondary" /><h2 className="font-heading text-xl">Research Lab Analytics</h2><Chip tone="primary">Live project data</Chip></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><StatCard label="Members" value={analytics.members} sub={`${analytics.supervised_students} supervised students`} icon={UsersRound} /><StatCard label="Research corpus" value={analytics.papers} sub={`${analytics.completed_runs} completed runs`} icon={LibraryBig} /><StatCard label="Manuscripts" value={analytics.manuscripts} sub={`${analytics.submission_ready} submission-ready`} icon={BookOpenCheck} /><StatCard label="Student progress" value={`${analytics.average_student_progress}%`} sub={`${analytics.open_risks} open risks`} icon={BarChart3} /></div></section> : null}
+        {professor && analytics ? <section className="mt-8"><div className="mb-4 flex items-center gap-2"><BarChart3 size={20} className="text-secondary" /><h2 className="font-heading text-xl">Research Lab Analytics</h2><Chip tone="primary">Live project data</Chip></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><StatCard label="Members" value={analytics.members} sub={`${analytics.supervised_students} supervised students`} icon={UsersRound} /><StatCard label="Research corpus" value={analytics.papers} sub={`${analytics.open_access_papers} OA · ${analytics.full_text_papers} full text`} icon={LibraryBig} /><StatCard label="Manuscripts" value={analytics.manuscripts} sub={`${analytics.submission_ready} ready · ${analytics.similarity_review_required} similarity review`} icon={BookOpenCheck} /><StatCard label="Grant discovery" value={analytics.grant_opportunities} sub={`${analytics.completed_runs} completed runs`} icon={Globe2} /><StatCard label="Student progress" value={`${analytics.average_student_progress}%`} sub={`${analytics.open_risks} open risks`} icon={BarChart3} /></div></section> : null}
 
         <section className="mt-8"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-heading text-xl">Professional output history</h2><p className="text-xs text-foreground/45">Auditable records for this project.</p></div></div>{!history.length ? <EmptyState icon={ShieldCheck} title="No professional outputs yet" body="Run a role-based agent above; its evidence scope and result will be stored here." /> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{history.map((item) => <button key={item.id} onClick={() => { setResult(item); setSelectedAction(item.action); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="glass-soft cursor-pointer rounded-2xl p-4 text-left hover:border-primary/40"><div className="flex items-center justify-between gap-2"><Chip tone="default">{labelize(item.action)}</Chip><Chip tone={qualityTone(item.evidence_quality)}>{labelize(item.evidence_quality)}</Chip></div><h3 className="mt-3 line-clamp-2 font-heading text-base">{item.title}</h3><p className="mt-2 text-xs text-foreground/40">{new Date(item.created_at).toLocaleString()}</p></button>)}</div>}</section>
       </div>

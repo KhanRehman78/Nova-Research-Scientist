@@ -1,6 +1,6 @@
 // NOVA Professional Agent — role-aware student, professor, reviewer and lab tools.
 // Every generated output is persisted with its evidence quality and source run.
-import { getAuthedClient, json, ok, truncate } from "../_shared/mod.ts";
+import { fetchWithRetry, getAuthedClient, json, ok, truncate } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const ACTIONS = new Set([
@@ -157,6 +157,28 @@ function systemPrompt(action: string): string {
   return `${common} ${prompts[action] ?? ""}`;
 }
 
+function normalizedPersonName(value: string): string {
+  return value.toLocaleLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+async function openAlexAuthor(name: string): Promise<any | null> {
+  const apiKey = Deno.env.get("OPENALEX_API_KEY");
+  if (!apiKey) return null;
+  try {
+    const response = await fetchWithRetry(
+      `https://api.openalex.org/authors?search=${encodeURIComponent(name)}&per_page=5&api_key=${encodeURIComponent(apiKey)}`,
+      {}, 2, 10_000,
+    );
+    const payload = await response.json();
+    const target = normalizedPersonName(name);
+    const results = payload?.results ?? [];
+    return results.find((item: any) => normalizedPersonName(String(item.display_name ?? "")) === target) ?? null;
+  } catch (error) {
+    console.error("OpenAlex author enrichment failed", name, error);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return ok();
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -221,19 +243,39 @@ Deno.serve(async (req) => {
         authors.set(key, item);
       });
     });
-    const candidates = [...authors.values()].map((item) => ({
-      name: item.name, evidence_ids: [...item.papers], corpus_paper_count: item.papers.size,
-      corpus_citations: item.citations, contact_status: "not_verified",
-    })).sort((a, b) => b.corpus_paper_count - a.corpus_paper_count || b.corpus_citations - a.corpus_citations).slice(0, 20);
+    const ranked = [...authors.values()].sort((a, b) => b.papers.size - a.papers.size || b.citations - a.citations).slice(0, 20);
+    const enrichments = await Promise.all(ranked.slice(0, 12).map((item) => openAlexAuthor(item.name)));
+    const candidates = ranked.map((item, index) => {
+      const author = index < enrichments.length ? enrichments[index] : null;
+      return {
+        name: item.name,
+        evidence_ids: [...item.papers],
+        corpus_paper_count: item.papers.size,
+        corpus_citations: item.citations,
+        identity_status: author ? "exact_name_match_requires_human_confirmation" : "not_enriched",
+        openalex_id: author?.id ?? null,
+        orcid: author?.orcid ?? null,
+        current_affiliations: (author?.last_known_institutions ?? []).map((institution: any) => ({
+          name: institution.display_name,
+          country_code: institution.country_code ?? null,
+          openalex_id: institution.id,
+        })),
+        global_works_count: author?.works_count ?? null,
+        global_cited_by_count: author?.cited_by_count ?? null,
+        h_index: author?.summary_stats?.h_index ?? null,
+        public_profile: author?.id ?? null,
+        contact_status: "not_collected",
+      };
+    });
     const output = {
-      scope_note: "Candidates are derived only from authors in the selected NOVA corpus; identity, affiliation, availability and contact details are not verified.",
+      scope_note: "Candidates are derived from exact author strings in the selected NOVA corpus. OpenAlex public profiles enrich exact-name matches; identity, current availability and private contact details still require human confirmation.",
       candidates,
-      next_checks: ["Confirm identity through an institutional profile or ORCID.", "Review contribution fit from the cited papers.", "Verify current affiliation and contact details independently."],
+      next_checks: ["Confirm the OpenAlex/ORCID identity against the cited papers.", "Review contribution fit and authorship expertise.", "Use the researcher's current institutional profile for ethical contact."],
     };
     const { data: saved, error } = await supabase.from("role_agent_outputs").insert({
       project_id: project.id, user_id: user.id, source_run_id: run.id, action,
       title: titleFor(action, body, output), input_json: { run_id: run.id }, output_json: output,
-      evidence_quality: "verified", model: "deterministic-corpus-analysis",
+      evidence_quality: "grounded", model: "deterministic-corpus-plus-openalex",
     }).select().single();
     if (error) return json({ error: error.message }, 500);
     return json({ record: saved, output });
@@ -312,4 +354,3 @@ Deno.serve(async (req) => {
   if (saveError) return json({ error: saveError.message }, 500);
   return json({ record: saved, output });
 });
-

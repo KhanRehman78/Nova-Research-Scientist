@@ -15,11 +15,14 @@ The product combines:
 
 - a multi-stage autonomous research pipeline;
 - live academic-source retrieval and literature organization;
+- lawful open-access resolution and machine-readable full-text enrichment;
 - research-gap, hypothesis, and experiment-design assistance;
 - professional student and professor workflows;
 - academic writing, grammar, clarity, and author-voice guidance;
 - manuscript validation and submission-readiness controls;
-- local-corpus similarity screening with exact matched passages;
+- open-full-text and local-source similarity screening with exact matched passages;
+- citation-library, bibliography, journal-rule, and passage-comment workflows;
+- live public grant discovery and global funder discovery;
 - project collaboration, supervision records, and lab analytics;
 - Supabase authentication, private storage, database persistence, and row-level access control.
 
@@ -95,7 +98,11 @@ NOVA Research, Writing, Validation and Professional Agents
             +--> Semantic Scholar
             +--> PubMed
             +--> OpenAlex
+            +--> OpenAlex Content (licensed OA TEI)
+            +--> Unpaywall
+            +--> Europe PMC full text
             +--> Crossref
+            +--> Grants.gov
 ```
 
 ### Technology stack
@@ -111,7 +118,8 @@ NOVA Research, Writing, Validation and Professional Agents
 | Backend logic | Supabase Edge Functions |
 | Live status | Supabase Realtime task updates |
 | AI | OpenAI structured JSON outputs; default model is `gpt-5.6-luna`, configurable with `OPENAI_MODEL` |
-| Academic sources | arXiv, Semantic Scholar, PubMed, OpenAlex, Crossref |
+| Academic sources | arXiv, Semantic Scholar, PubMed, OpenAlex, Unpaywall, Europe PMC, Crossref |
+| Funding sources | Live Grants.gov opportunities, OpenAlex global funder profiles, official regional portal links |
 | Planned web hosting | Vercel frontend with Supabase backend |
 
 All privileged API keys remain in Supabase Edge Function secrets. The browser only receives the Supabase project URL and publishable key.
@@ -243,9 +251,18 @@ The retrieved corpus is presented as:
 - paper cards with title, authors, year, abstract, citation count, DOI, paper URL, and available open PDF;
 - corpus statistics including paper count, source count, and average publication year.
 
-### 7.4 Paper Reader and Literature Matrix
+### 7.4 Open-Access Enrichment, Paper Reader, and Literature Matrix
 
-NOVA analyzes the title and available abstract for each retrieved record and extracts:
+For a linked research run, NOVA now:
+
+- resolves DOI-level open-access status and locations through Unpaywall;
+- enriches work, author, institution, funder, retraction, license, and content metadata through OpenAlex;
+- retrieves Europe PMC full-text XML when available;
+- retrieves OpenAlex TEI only when machine-readable content exists and the recorded license permits reuse;
+- stores source URL, license, retrieval status, content hash, word count, and timestamp behind project RLS;
+- records restricted, metadata-only, unavailable, and failed states rather than silently treating them as full text.
+
+NOVA analyzes available full text first, then the abstract, then title-only evidence, and extracts:
 
 - method or approach;
 - dataset;
@@ -259,7 +276,7 @@ The Literature Room provides:
 - pagination;
 - counts of extracted findings, methods, and open problems.
 
-If an item is not stated in the available abstract, the agent is instructed to leave it empty instead of inventing it.
+Each matrix row stores its evidence scope, a supporting excerpt, and source URL where available. If an item is not stated in the supplied evidence, the agent is instructed to leave it empty instead of inventing it.
 
 ### 7.5 Research Gap Finder
 
@@ -382,7 +399,16 @@ Each suggestion contains:
 - open, accepted, or dismissed state;
 - content hash tying the suggestion to the exact manuscript version.
 
-### 8.4 Immutable provenance versions
+### 8.4 Structured academic editor and review comments
+
+- Markdown remains the authoritative, exportable manuscript format.
+- The editor includes heading, bold, italic, and evidence-quote controls.
+- A reviewer can select an exact passage and attach a comment.
+- Comments store selected text, offsets, author, status, timestamp, and manuscript content hash.
+- Comments from an earlier manuscript hash remain visible as earlier-version review evidence.
+- Open comments can be resolved without deleting the audit record.
+
+### 8.5 Immutable provenance versions
 
 - A manuscript version is captured when a manuscript is created.
 - Content changes create new version records.
@@ -390,7 +416,7 @@ Each suggestion contains:
 - Previous content can be loaded into the editor and saved as a new restoration version.
 - Editing a validated manuscript invalidates stale validation and sign-off status.
 
-### 8.5 Private document workspace
+### 8.6 Private document workspace
 
 Supported uploads:
 
@@ -409,7 +435,23 @@ Document types:
 
 PDF and DOCX text is extracted locally in the browser. The original file is stored in a private Supabase bucket with project-based access policies. The current configured file limit is 25 MB, and downloads use short-lived signed URLs.
 
-### 8.6 Professional manuscript exports
+### 8.7 Citation library and bibliography
+
+- Papers from a linked research run can be added to a structured manuscript citation library.
+- NOVA stores a citation key and CSL-shaped metadata with the source-paper link.
+- Authors can insert an in-text marker at the editor cursor.
+- A bibliography can be generated from the current library in APA 7, IEEE, Vancouver, Chicago, or Harvard form.
+- Journal-specific punctuation and edge cases remain a mandatory human check.
+
+### 8.8 Journal requirement profile
+
+- The author uploads the current official author guide as a private Guidelines document.
+- NOVA extracts explicit limits and requirements with exact source excerpts.
+- Supported rule types include title, abstract, manuscript and keyword limits; required sections; table/figure limits; reference style; ethics, data, conflict, funding and AI-disclosure requirements; and submission-file requirements.
+- If the OpenAI review is unavailable, a conservative deterministic extractor still records explicit patterns and marks the profile as requiring review.
+- The validator applies measurable rules to the exact current manuscript.
+
+### 8.9 Professional manuscript exports
 
 The Writing Studio generates:
 
@@ -436,6 +478,8 @@ The full validator combines deterministic checks, verified external metadata, an
 - Current validation status
 - Open blocking and human-review issues
 - Current author attestation
+- Extracted journal-rule conformance
+- Full-text-aware local similarity corpus
 
 Core heading detection includes Abstract, Introduction, Methods/Methodology, Discussion, and References/Bibliography.
 
@@ -470,6 +514,8 @@ Results are classified as:
 - Blocking
 - Human review required
 
+The interface provides both **Deterministic checks** and **Full validation**. Deterministic mode remains usable before OpenAI credits are added; full mode adds the structured AI-assisted academic review. OpenAI calls have a bounded server timeout so an unavailable provider cannot hold the workflow indefinitely.
+
 ### 9.4 Six readiness gates
 
 1. Citation integrity
@@ -491,7 +537,8 @@ NOVA implements an auditable local-corpus similarity report rather than presenti
 
 The validator compares manuscript prose against:
 
-- abstracts from papers in the linked research run;
+- legally retrieved open full text from papers in the linked research run;
+- remaining abstracts where full text was not lawfully retrievable;
 - uploaded source documents;
 - uploaded supplementary documents.
 
@@ -511,6 +558,7 @@ The validator compares manuscript prose against:
 - matched-word count;
 - total screened-word count;
 - number of compared sources;
+- count of full-text versus abstract-only linked sources;
 - section-by-section similarity percentage;
 - exact matched manuscript passage;
 - matched source title and reference;
@@ -688,11 +736,22 @@ Budget figures are planning estimates only and require institutional rates, quot
 
 - Extracts exact author names from papers in the selected corpus.
 - Ranks candidate authors using stored corpus evidence.
+- Enriches exact-name matches from public OpenAlex profiles with OpenAlex ID, ORCID when present, current public affiliation, country, work count, citation count, and h-index.
 - Preserves evidence references behind the recommendation.
 
-Identity, affiliation, availability, and contact details remain unverified unless independently confirmed.
+Exact identity, current affiliation, availability, and contact details remain subject to human confirmation. NOVA does not collect or infer private contact information.
 
-### 13.6 Supervision Assistant
+### 13.6 Global Grant Discovery
+
+- Searches live posted and forecasted Grants.gov opportunities.
+- Stores source ID, title, agency, status, dates, public URL, disciplines, and source payload with a fetch timestamp.
+- Searches OpenAlex for relevant funders across countries.
+- Provides official discovery links for EU Funding & Tenders, UKRI, WHO, and World Bank partnership/funding pages.
+- Persists each discovery result with source status and coverage note.
+
+The current structured live opportunity feed is Grants.gov. Other regions are represented through global funder profiles and official portal links; eligibility, currency, deadline, and programme rules must be confirmed on the official call page.
+
+### 13.7 Supervision Assistant
 
 Uses stored supervision records to produce:
 
@@ -730,9 +789,12 @@ Authorized Professor and Lab Admin users can view project-scoped metrics such as
 - supervised students;
 - research runs;
 - collected papers;
+- open-access papers and stored open full texts;
 - generated reports;
 - manuscripts;
 - submission-ready manuscripts;
+- manuscripts requiring similarity review;
+- stored grant opportunities;
 - average supervision progress;
 - open risks.
 
@@ -771,6 +833,7 @@ Evidence-quality labels are:
 - Time-limited signed file downloads
 - Service-role key restricted to server-side functions
 - OpenAI key restricted to Supabase secrets
+- OpenAlex key and Unpaywall central contact email restricted to Supabase secrets
 - Protected manuscript readiness fields
 - Server-generated validation and similarity records
 - SHA-256 version binding
@@ -838,6 +901,19 @@ The live test verified:
 
 The controlled similarity fixture produced a 10.43% local-corpus score and localized the known overlap to the Introduction. This number is a test-fixture result, not a general product accuracy claim.
 
+### Global open-research live test
+
+The production Supabase test additionally verified:
+
+- Unpaywall and OpenAlex metadata enrichment;
+- retrieval and persistence of a real CC-BY OpenAlex TEI full text;
+- content-license, URL, SHA-256, word-count, and retrieval-status storage;
+- inclusion of the stored full text in the deterministic similarity corpus;
+- live Grants.gov discovery and global OpenAlex funder results;
+- citation-library RLS;
+- passage-comment RLS;
+- temporary-user cleanup without breaking retained provenance.
+
 ---
 
 ## 17. Current Deployment Status
@@ -851,7 +927,10 @@ The controlled similarity fixture produced a 10.43% local-corpus score and local
 - Professional Agent Edge Function
 - Writing Assistant Edge Function
 - Paper Validator and similarity-screening backend
+- Open Research enrichment and global grant backend
+- Journal-profile, citation-library, and manuscript-comment schema
 - OpenAI secret integration through Supabase
+- OpenAlex and Unpaywall secret integration through Supabase
 
 ### Ready for Vercel deployment
 
@@ -861,12 +940,11 @@ The controlled similarity fixture produced a 10.43% local-corpus score and local
 
 ### Still required for the Vercel launch
 
-1. Add SPA rewrite configuration in `vercel.json`.
-2. Push the repository to GitHub or another supported Git provider.
-3. Import the repository into Vercel.
-4. Configure `VITE_SUPABASE_URL` and the Supabase publishable key.
-5. Add the final Vercel URL to Supabase Auth URL Configuration.
-6. Test email confirmation, direct-route refresh, research run, Writing Studio, and similarity report on the production domain.
+1. Push the repository to GitHub or another supported Git provider.
+2. Import the repository into Vercel. `vercel.json` already defines the Vite build, `dist` output, SPA fallback, cache, and baseline security headers.
+3. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from `.env.example`.
+4. Add the final Vercel URL to Supabase Auth URL Configuration.
+5. Test email confirmation, direct-route refresh, research run, open-access enrichment, Writing Studio, and similarity report on the production domain.
 
 The browser URL `localhost:5173/**` is not valid for opening the application. `/**` is an allow-list wildcard used only inside Supabase Redirect URLs. Local use should open `http://localhost:5173/` while `npm run dev` is actively running.
 
@@ -1149,4 +1227,3 @@ Do not use `localhost:5173/**` when capturing screenshots. Use the final Vercel 
 ### Responsible-AI version
 
 > NOVA combines AI acceleration with provenance, strict evidence scope, protected server controls, and explicit limits—so researchers remain accountable for the final academic work.
-

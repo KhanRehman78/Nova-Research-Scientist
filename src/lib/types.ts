@@ -77,6 +77,14 @@ export interface Paper {
   url: string | null;
   citation_count: number;
   open_access_pdf: string | null;
+  openalex_id?: string | null;
+  oa_status?: "unknown" | "closed" | "bronze" | "green" | "gold" | "hybrid" | "diamond";
+  full_text_status?: "unknown" | "available" | "metadata_only" | "unavailable" | "restricted" | "failed";
+  full_text_url?: string | null;
+  full_text_source?: string | null;
+  full_text_license?: string | null;
+  full_text_checked_at?: string | null;
+  enriched_metadata?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -218,10 +226,12 @@ export interface SimilarityReport {
   match_count: number;
   section_scores: SimilaritySectionScore[];
   corpus_scope: {
+    linked_paper_fulltexts?: number;
     linked_paper_abstracts?: number;
     uploaded_sources?: number;
     sources_compared?: number;
     proprietary_database_coverage?: boolean;
+    open_access_fulltext_coverage?: boolean;
     open_web_coverage?: boolean;
   };
   methodology: Record<string, unknown>;
@@ -272,6 +282,55 @@ export interface ManuscriptDocument {
   metadata: Record<string, unknown>;
   created_by: string | null;
   created_at: string;
+}
+
+export interface PaperFullText {
+  id: string;
+  paper_id: string;
+  run_id: string;
+  source: string;
+  source_url: string;
+  license: string | null;
+  word_count: number;
+  retrieval_status: "available" | "metadata_only" | "unavailable" | "restricted" | "failed";
+  retrieved_at: string;
+}
+
+export interface JournalProfile {
+  id: string;
+  manuscript_id: string;
+  journal_name: string;
+  guidelines_document_id: string | null;
+  content_sha256: string;
+  rules: Record<string, unknown>;
+  evidence: { rule: string; excerpt: string }[];
+  status: "extracted" | "requires_review" | "confirmed";
+  model: string | null;
+  updated_at: string;
+}
+
+export interface ManuscriptCitation {
+  id: string;
+  manuscript_id: string;
+  paper_id: string | null;
+  citation_key: string;
+  csl_json: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ManuscriptComment {
+  id: string;
+  manuscript_id: string;
+  content_sha256: string;
+  selected_text: string;
+  start_offset: number | null;
+  end_offset: number | null;
+  body: string;
+  status: "open" | "resolved";
+  created_by: string | null;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 export interface WritingSuggestion {
@@ -326,6 +385,7 @@ export type ProfessionalAction =
   | "literature_intelligence"
   | "peer_review"
   | "grant_proposal"
+  | "global_grant_search"
   | "collaborator_finder"
   | "supervision_feedback";
 
@@ -375,9 +435,13 @@ export interface LabAnalytics {
   active_runs: number;
   completed_runs: number;
   papers: number;
+  open_access_papers: number;
+  full_text_papers: number;
   reports: number;
   manuscripts: number;
   submission_ready: number;
+  similarity_review_required: number;
+  grant_opportunities: number;
   supervised_students: number;
   average_student_progress: number;
   open_risks: number;

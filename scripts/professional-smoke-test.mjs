@@ -113,7 +113,7 @@ try {
 
   const collaborators = await invoke(professor, "collaborator_finder", { project_id: projectId, run_id: runId });
   check(collaborators.output?.candidates?.[0]?.name === "A. Researcher", "Deterministic collaborator ranking failed");
-  check(collaborators.record?.evidence_quality === "verified", "Collaborator evidence status is incorrect");
+  check(collaborators.record?.evidence_quality === "grounded", "Collaborator evidence status is incorrect");
 
   const topic = await invoke(student, "topic_finder", {
     project_id: projectId,

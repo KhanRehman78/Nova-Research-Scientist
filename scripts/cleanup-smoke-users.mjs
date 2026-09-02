@@ -12,7 +12,7 @@ while (true) {
   if (error) throw error;
   const users = data.users ?? [];
   for (const user of users) {
-    if (!user.email?.startsWith("nova-writing-smoke-")) continue;
+    if (!["nova-writing-smoke-", "nova-open-research-", "nova-professor-", "nova-student-"].some((prefix) => user.email?.startsWith(prefix))) continue;
     const { error: deleteError } = await admin.auth.admin.deleteUser(user.id);
     if (deleteError) throw deleteError;
     removed += 1;

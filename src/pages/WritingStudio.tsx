@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArchiveRestore,
   BadgeCheck,
+  Bold,
   BookCheck,
+  BookPlus,
   Braces,
   Check,
   ChevronRight,
@@ -12,9 +14,14 @@ import {
   FileText,
   FileType2,
   History,
+  Heading2,
+  Italic,
   Library,
   LockKeyhole,
   PenLine,
+  MessageSquareText,
+  Quote,
+  RefreshCcw,
   ScanSearch,
   Plus,
   Save,
@@ -41,9 +48,14 @@ import {
 } from "../lib/documentFiles";
 import type {
   AuthorSignoff,
+  JournalProfile,
   Manuscript,
+  ManuscriptCitation,
+  ManuscriptComment,
   ManuscriptDocument,
   ManuscriptVersion,
+  Paper,
+  PaperFullText,
   ResearchRun,
   SimilarityMatch,
   SimilarityReport,
@@ -51,11 +63,12 @@ import type {
   WritingMode,
   WritingSuggestion,
 } from "../lib/types";
+import { bibliography, citationKey, formatInTextCitation, paperToCsl } from "../lib/citations";
 import { Button, Chip, EmptyState, ErrorBanner, PageHeader, Spinner } from "../components/ui";
 
 type Tab = "write" | "sources" | "validate" | "submission";
 type ProjectOption = { id: string; name: string };
-type BusyAction = "create" | "save" | "analyze" | "draft" | "validate" | "upload" | "signoff" | "finalize" | "export" | null;
+type BusyAction = "create" | "save" | "analyze" | "draft" | "validate" | "upload" | "signoff" | "finalize" | "export" | "enrich" | "journal" | "citation" | "comment" | null;
 
 const FIELD_CLASS = "w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:border-primary focus:outline-2 focus:outline-primary/40";
 const TABS: { key: Tab; label: string; icon: typeof PenLine }[] = [
@@ -96,6 +109,7 @@ function formatDate(value: string) {
 export function WritingStudio() {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [projectId, setProjectId] = useState("");
   const [manuscripts, setManuscripts] = useState<Manuscript[]>([]);
@@ -108,6 +122,12 @@ export function WritingStudio() {
   const [signoffs, setSignoffs] = useState<AuthorSignoff[]>([]);
   const [similarityReport, setSimilarityReport] = useState<SimilarityReport | null>(null);
   const [similarityMatches, setSimilarityMatches] = useState<SimilarityMatch[]>([]);
+  const [linkedPapers, setLinkedPapers] = useState<Paper[]>([]);
+  const [fullTexts, setFullTexts] = useState<PaperFullText[]>([]);
+  const [journalProfile, setJournalProfile] = useState<JournalProfile | null>(null);
+  const [citations, setCitations] = useState<ManuscriptCitation[]>([]);
+  const [comments, setComments] = useState<ManuscriptComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
   const [tab, setTab] = useState<Tab>("write");
   const [uploadKind, setUploadKind] = useState<ManuscriptDocument["kind"]>("source");
   const [dirty, setDirty] = useState(false);
@@ -176,12 +196,13 @@ export function WritingStudio() {
     if (!manuscript?.id) {
       setSuggestions([]); setFindings([]); setDocuments([]); setVersions([]); setSignoffs([]);
       setSimilarityReport(null); setSimilarityMatches([]);
+      setLinkedPapers([]); setFullTexts([]); setJournalProfile(null); setCitations([]); setComments([]);
       return;
     }
     let cancelled = false;
     const manuscriptId = manuscript.id;
     (async () => {
-      const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows] = await Promise.all([
+      const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows, journalRow, citationRows, commentRows, paperRows, fullTextRows] = await Promise.all([
         supabase.from("writing_suggestions").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("validation_findings").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("manuscript_documents").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
@@ -189,6 +210,11 @@ export function WritingStudio() {
         supabase.from("author_signoffs").select("*").eq("manuscript_id", manuscriptId),
         supabase.from("similarity_reports").select("*").eq("manuscript_id", manuscriptId).maybeSingle(),
         supabase.from("similarity_matches").select("*").eq("manuscript_id", manuscriptId).order("similarity", { ascending: false }),
+        supabase.from("journal_profiles").select("*").eq("manuscript_id", manuscriptId).maybeSingle(),
+        supabase.from("manuscript_citations").select("*").eq("manuscript_id", manuscriptId).order("created_at"),
+        supabase.from("manuscript_comments").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
+        manuscript.research_run_id ? supabase.from("papers").select("*").eq("run_id", manuscript.research_run_id).order("citation_count", { ascending: false }).limit(100) : Promise.resolve({ data: [] }),
+        manuscript.research_run_id ? supabase.from("paper_fulltexts").select("id,paper_id,run_id,source,source_url,license,word_count,retrieval_status,retrieved_at").eq("run_id", manuscript.research_run_id) : Promise.resolve({ data: [] }),
       ]);
       if (cancelled) return;
       setSuggestions((suggestionRows.data ?? []) as WritingSuggestion[]);
@@ -198,9 +224,14 @@ export function WritingStudio() {
       setSignoffs((signoffRows.data ?? []) as AuthorSignoff[]);
       setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
       setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
+      setJournalProfile((journalRow.data ?? null) as JournalProfile | null);
+      setCitations((citationRows.data ?? []) as ManuscriptCitation[]);
+      setComments((commentRows.data ?? []) as ManuscriptComment[]);
+      setLinkedPapers((paperRows.data ?? []) as Paper[]);
+      setFullTexts((fullTextRows.data ?? []) as PaperFullText[]);
     })();
     return () => { cancelled = true; };
-  }, [manuscript?.id]);
+  }, [manuscript?.id, manuscript?.research_run_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,7 +256,7 @@ export function WritingStudio() {
   };
 
   const refreshAssets = async (id: string) => {
-    const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows] = await Promise.all([
+    const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows, journalRow, citationRows, commentRows, paperRows, fullTextRows] = await Promise.all([
       supabase.from("writing_suggestions").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("validation_findings").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("manuscript_documents").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
@@ -233,6 +264,11 @@ export function WritingStudio() {
       supabase.from("author_signoffs").select("*").eq("manuscript_id", id),
       supabase.from("similarity_reports").select("*").eq("manuscript_id", id).maybeSingle(),
       supabase.from("similarity_matches").select("*").eq("manuscript_id", id).order("similarity", { ascending: false }),
+      supabase.from("journal_profiles").select("*").eq("manuscript_id", id).maybeSingle(),
+      supabase.from("manuscript_citations").select("*").eq("manuscript_id", id).order("created_at"),
+      supabase.from("manuscript_comments").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
+      manuscript?.research_run_id ? supabase.from("papers").select("*").eq("run_id", manuscript.research_run_id).order("citation_count", { ascending: false }).limit(100) : Promise.resolve({ data: [] }),
+      manuscript?.research_run_id ? supabase.from("paper_fulltexts").select("id,paper_id,run_id,source,source_url,license,word_count,retrieval_status,retrieved_at").eq("run_id", manuscript.research_run_id) : Promise.resolve({ data: [] }),
     ]);
     setSuggestions((suggestionRows.data ?? []) as WritingSuggestion[]);
     setFindings((findingRows.data ?? []) as ValidationFinding[]);
@@ -241,6 +277,11 @@ export function WritingStudio() {
     setSignoffs((signoffRows.data ?? []) as AuthorSignoff[]);
     setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
     setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
+    setJournalProfile((journalRow.data ?? null) as JournalProfile | null);
+    setCitations((citationRows.data ?? []) as ManuscriptCitation[]);
+    setComments((commentRows.data ?? []) as ManuscriptComment[]);
+    setLinkedPapers((paperRows.data ?? []) as Paper[]);
+    setFullTexts((fullTextRows.data ?? []) as PaperFullText[]);
   };
 
   const createManuscript = async () => {
@@ -370,11 +411,134 @@ export function WritingStudio() {
     else setSuggestions((items) => items.map((item) => item.id === suggestion.id ? { ...item, status: "dismissed" } : item));
   };
 
-  const validateManuscript = async () => {
+  const applyEditorMarkup = (prefix: string, suffix = prefix, placeholder = "text") => {
+    if (!manuscript) return;
+    const editor = editorRef.current;
+    const start = editor?.selectionStart ?? manuscript.content.length;
+    const end = editor?.selectionEnd ?? start;
+    const selected = manuscript.content.slice(start, end) || placeholder;
+    const next = `${manuscript.content.slice(0, start)}${prefix}${selected}${suffix}${manuscript.content.slice(end)}`;
+    updateManuscript("content", next);
+    requestAnimationFrame(() => {
+      editor?.focus();
+      editor?.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    });
+  };
+
+  const enrichLinkedRun = async () => {
+    if (!manuscript?.research_run_id) return;
+    if (dirty && !await persistManuscript()) return;
+    setBusy("enrich"); setError(null); setNotice(null);
+    const { data, error: invokeError } = await supabase.functions.invoke("open-research", {
+      body: { action: "enrich_run", run_id: manuscript.research_run_id, include_full_text: true },
+    });
+    if (invokeError || data?.error) setError(await functionErrorMessage(invokeError, data, "Open-access enrichment failed."));
+    else {
+      await refreshAssets(manuscript.id);
+      setNotice(`Open research enrichment complete: ${data.full_text_available ?? 0} full text, ${data.metadata_only ?? 0} metadata/link-only, ${data.unavailable ?? 0} unavailable or restricted.`);
+    }
+    setBusy(null);
+  };
+
+  const extractJournalRequirements = async () => {
+    if (!manuscript) return;
+    if (dirty && !await persistManuscript()) return;
+    setBusy("journal"); setError(null); setNotice(null);
+    const { data, error: invokeError } = await supabase.functions.invoke("open-research", {
+      body: { action: "extract_journal_profile", manuscript_id: manuscript.id },
+    });
+    if (invokeError || data?.error) setError(await functionErrorMessage(invokeError, data, "Journal requirement extraction failed."));
+    else {
+      setJournalProfile(data.profile as JournalProfile);
+      setManuscript((current) => current ? { ...current, journal_requirements: data.profile.rules } : current);
+      setNotice(`Journal requirements extracted with ${data.profile.evidence?.length ?? 0} source excerpt(s). Review the evidence before relying on them.`);
+    }
+    setBusy(null);
+  };
+
+  const ensureCitation = async (paper: Paper): Promise<{ rows: ManuscriptCitation[]; index: number } | null> => {
+    if (!manuscript || !user) return null;
+    const existingIndex = citations.findIndex((item) => item.paper_id === paper.id);
+    if (existingIndex >= 0) return { rows: citations, index: existingIndex };
+    const baseKey = citationKey(paper);
+    const key = citations.some((item) => item.citation_key === baseKey) ? `${baseKey}-${citations.length + 1}` : baseKey;
+    const { data, error: insertError } = await supabase.from("manuscript_citations").insert({
+      manuscript_id: manuscript.id,
+      paper_id: paper.id,
+      citation_key: key,
+      csl_json: paperToCsl(paper),
+      created_by: user.id,
+    }).select().single();
+    if (insertError) { setError(insertError.message); return null; }
+    const rows = [...citations, data as ManuscriptCitation];
+    setCitations(rows);
+    return { rows, index: rows.length - 1 };
+  };
+
+  const insertCitation = async (paper: Paper) => {
+    if (!manuscript) return;
+    setBusy("citation"); setError(null);
+    const ensured = await ensureCitation(paper);
+    if (ensured) {
+      const marker = formatInTextCitation(paper, manuscript.citation_style, ensured.index);
+      applyEditorMarkup(marker, "", "");
+      setNotice(`Citation ${marker} inserted locally. Save the manuscript to version it.`);
+    }
+    setBusy(null);
+  };
+
+  const removeCitation = async (citation: ManuscriptCitation) => {
+    const { error: deleteError } = await supabase.from("manuscript_citations").delete().eq("id", citation.id);
+    if (deleteError) setError(deleteError.message);
+    else setCitations((items) => items.filter((item) => item.id !== citation.id));
+  };
+
+  const appendBibliography = () => {
+    if (!manuscript) return;
+    const selected = citations.map((citation) => linkedPapers.find((paper) => paper.id === citation.paper_id)).filter(Boolean) as Paper[];
+    if (!selected.length) { setError("Add at least one linked paper to the citation library first."); return; }
+    const block = `## References\n\n${bibliography(selected, manuscript.citation_style)}`;
+    const withoutExisting = manuscript.content.replace(/\n#{1,3}\s+(?:references|bibliography)\s*\n[\s\S]*$/i, "").trimEnd();
+    updateManuscript("content", `${withoutExisting}\n\n${block}\n`);
+    setNotice("Bibliography generated from the current citation library. Verify journal-specific punctuation before submission.");
+    setTab("write");
+  };
+
+  const addComment = async () => {
+    if (!manuscript || !user || !commentDraft.trim() || !contentHash) return;
+    const start = editorRef.current?.selectionStart ?? null;
+    const end = editorRef.current?.selectionEnd ?? null;
+    const selectedText = start != null && end != null && end > start ? manuscript.content.slice(start, end) : "";
+    setBusy("comment"); setError(null);
+    const { data, error: insertError } = await supabase.from("manuscript_comments").insert({
+      manuscript_id: manuscript.id,
+      content_sha256: contentHash,
+      selected_text: selectedText,
+      start_offset: start,
+      end_offset: end,
+      body: commentDraft.trim(),
+      created_by: user.id,
+    }).select().single();
+    if (insertError) setError(insertError.message);
+    else {
+      setComments((items) => [data as ManuscriptComment, ...items]);
+      setCommentDraft("");
+      setNotice(selectedText ? "Review comment attached to the selected passage." : "Document-level review comment added.");
+    }
+    setBusy(null);
+  };
+
+  const resolveComment = async (comment: ManuscriptComment) => {
+    const { error: updateError } = await supabase.from("manuscript_comments").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", comment.id);
+    if (updateError) setError(updateError.message);
+    else setComments((items) => items.map((item) => item.id === comment.id ? { ...item, status: "resolved", resolved_at: new Date().toISOString() } : item));
+  };
+
+  const validateManuscript = async (deterministicOnly = false) => {
     if (!manuscript) return;
     if (dirty && !await persistManuscript()) return;
     setBusy("validate"); setError(null); setNotice(null);
-    const { data, error: invokeError } = await supabase.functions.invoke("paper-validator", { body: { manuscript_id: manuscript.id } });
+    const { data, error: invokeError } = await supabase.functions.invoke("paper-validator", { body: { manuscript_id: manuscript.id, deterministic_only: deterministicOnly } });
     if (invokeError || data?.error) setError(await functionErrorMessage(invokeError, data, "Paper validation failed."));
     else {
       setManuscript(data.manuscript as Manuscript);
@@ -383,7 +547,7 @@ export function WritingStudio() {
       setSimilarityReport((data.similarity_report ?? null) as SimilarityReport | null);
       setSimilarityMatches((data.similarity_matches ?? []) as SimilarityMatch[]);
       setTab("validate");
-      setNotice("Validation and source-overlap screening complete. Review every match and resolve all human-review items before finalization.");
+      setNotice(`${deterministicOnly ? "Deterministic" : "Full"} validation and source-overlap screening complete. Review every match and resolve all human-review items before finalization.`);
     }
     setBusy(null);
   };
@@ -586,6 +750,7 @@ export function WritingStudio() {
                       <label className="text-xs text-foreground/55">Citation style<select className={`${FIELD_CLASS} mt-1`} value={manuscript.citation_style} onChange={(event) => updateManuscript("citation_style", event.target.value)}><option value="apa7">APA 7</option><option value="ieee">IEEE</option><option value="vancouver">Vancouver</option><option value="chicago">Chicago</option><option value="harvard">Harvard</option><option value="journal_specific">Journal-specific</option></select></label>
                       <label className="text-xs text-foreground/55 md:col-span-2">Linked completed research run<select className={`${FIELD_CLASS} mt-1`} value={manuscript.research_run_id ?? ""} onChange={(event) => updateManuscript("research_run_id", event.target.value || null)}><option value="">None — independent manuscript</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.query}</option>)}</select></label>
                       <label className="text-xs text-foreground/55">Keywords<input className={`${FIELD_CLASS} mt-1`} value={manuscript.keywords.join(", ")} onChange={(event) => updateManuscript("keywords", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} placeholder="comma, separated" /></label>
+                      <label className="text-xs text-foreground/55 md:col-span-2 xl:col-span-4">Structured abstract<textarea className={`${FIELD_CLASS} mt-1 resize-y`} rows={4} value={manuscript.abstract} onChange={(event) => updateManuscript("abstract", event.target.value)} placeholder="Keep this synchronized with the Abstract section; journal word-limit checks use this field first." /></label>
                     </div>
                   </section>
 
@@ -611,9 +776,22 @@ export function WritingStudio() {
                         {mode === "ai_assisted" ? <Button size="sm" onClick={generateDraft} disabled={Boolean(busy) || !manuscript.research_run_id}>{busy === "draft" ? <Spinner size={14} /> : <Sparkles size={14} />}Draft from research</Button> : null}
                       </div>
                     </div>
-                    <textarea aria-label="Manuscript content" value={manuscript.content} onChange={(event) => { updateManuscript("content", event.target.value); setManuscript((current) => current ? { ...current, last_edit_source: "human", last_change_summary: "Author saved manuscript changes" } : current); }} placeholder="# Title\n\n## Abstract\n\nBegin your manuscript…" className="min-h-[560px] w-full resize-y rounded-2xl border border-border bg-[#080d18] px-5 py-4 font-serif text-[15px] leading-7 text-foreground placeholder:text-foreground/25 focus:border-primary focus:outline-2 focus:outline-primary/40" />
+                    <div className="mb-2 flex flex-wrap gap-1 rounded-xl border border-border bg-panel/70 p-2" aria-label="Academic editor toolbar">
+                      <Button variant="ghost" size="sm" onClick={() => applyEditorMarkup("## ", "", "Section heading")}><Heading2 size={14} />Heading</Button>
+                      <Button variant="ghost" size="sm" onClick={() => applyEditorMarkup("**", "**", "bold text")}><Bold size={14} />Bold</Button>
+                      <Button variant="ghost" size="sm" onClick={() => applyEditorMarkup("*", "*", "italic text")}><Italic size={14} />Italic</Button>
+                      <Button variant="ghost" size="sm" onClick={() => applyEditorMarkup("> ", "", "quoted evidence")}><Quote size={14} />Quote</Button>
+                    </div>
+                    <textarea ref={editorRef} aria-label="Manuscript content" value={manuscript.content} onChange={(event) => { updateManuscript("content", event.target.value); setManuscript((current) => current ? { ...current, last_edit_source: "human", last_change_summary: "Author saved manuscript changes" } : current); }} placeholder="# Title\n\n## Abstract\n\nBegin your manuscript…" className="min-h-[560px] w-full resize-y rounded-2xl border border-border bg-[#080d18] px-5 py-4 font-serif text-[15px] leading-7 text-foreground placeholder:text-foreground/25 focus:border-primary focus:outline-2 focus:outline-primary/40" />
                     <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-foreground/45"><span>{wordCount.toLocaleString()} words · {manuscript.content.length.toLocaleString()} characters</span><span>{dirty ? "Unsaved local changes" : `Saved ${formatDate(manuscript.updated_at)}`}</span></div>
+                    <div className="mt-4 rounded-2xl border border-border bg-panel/60 p-4">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground"><MessageSquareText size={15} className="text-primary" />Passage review comment</div>
+                      <p className="mt-1 text-xs text-foreground/45">Select text in the editor, then add a comment. Comments are tied to this content hash and remain auditable after later edits.</p>
+                      <div className="mt-3 flex gap-2"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} className={FIELD_CLASS} placeholder="Review note or required change…" /><Button size="sm" onClick={() => void addComment()} disabled={!commentDraft.trim() || Boolean(busy)}>{busy === "comment" ? <Spinner size={13} /> : <Plus size={13} />}Add</Button></div>
+                    </div>
                   </section>
+
+                  {comments.length ? <section className="glass-panel rounded-3xl p-5 sm:p-6"><div className="mb-4 flex items-center justify-between"><h2 className="font-heading text-xl text-foreground">Review comments</h2><Chip tone="default">{comments.filter((item) => item.status === "open").length} open</Chip></div><div className="space-y-3">{comments.slice(0, 30).map((comment) => <article key={comment.id} className={`rounded-2xl border border-border bg-panel p-4 ${comment.status === "resolved" ? "opacity-60" : ""}`}><div className="flex flex-wrap items-center gap-2"><Chip tone={comment.status === "resolved" ? "success" : comment.content_sha256 === contentHash ? "primary" : "warning"}>{comment.status === "resolved" ? "Resolved" : comment.content_sha256 === contentHash ? "Current version" : "Earlier version"}</Chip><span className="ml-auto text-xs text-foreground/35">{formatDate(comment.created_at)}</span></div>{comment.selected_text ? <blockquote className="mt-3 border-l-2 border-primary/50 pl-3 text-xs italic text-foreground/60">“{comment.selected_text}”</blockquote> : null}<p className="mt-3 text-sm text-foreground/75">{comment.body}</p>{comment.status === "open" ? <Button variant="secondary" size="sm" className="mt-3" onClick={() => void resolveComment(comment)}><Check size={13} />Resolve</Button> : null}</article>)}</div></section> : null}
 
                   <section className="glass-panel rounded-3xl p-5 sm:p-6">
                     <div className="mb-4 flex items-center justify-between"><div><h2 className="font-heading text-xl text-foreground">Editorial suggestions</h2><p className="text-xs text-foreground/50">Suggestions match the currently saved content hash.</p></div><Chip tone="default">{currentSuggestions.filter((item) => item.status === "open").length} open</Chip></div>
@@ -630,6 +808,23 @@ export function WritingStudio() {
               {tab === "sources" ? (
                 <div className="space-y-5">
                   <section className="glass-panel rounded-3xl p-5 sm:p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Open research evidence corpus</h2><p className="mt-1 max-w-3xl text-sm text-foreground/55">Unpaywall resolves lawful open-access locations; OpenAlex enriches metadata and, when licensing permits, machine-readable full text. Restricted content is linked but never copied.</p></div><Button onClick={() => void enrichLinkedRun()} disabled={!manuscript.research_run_id || Boolean(busy)}>{busy === "enrich" ? <Spinner size={14} /> : <RefreshCcw size={14} />}Enrich linked corpus</Button></div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-border bg-panel p-3"><div className="font-mono text-xl text-primary">{linkedPapers.length}</div><div className="text-xs text-foreground/45">Linked papers</div></div><div className="rounded-xl border border-border bg-panel p-3"><div className="font-mono text-xl text-success">{fullTexts.length}</div><div className="text-xs text-foreground/45">Open full texts stored</div></div><div className="rounded-xl border border-border bg-panel p-3"><div className="font-mono text-xl text-foreground">{linkedPapers.filter((paper) => paper.full_text_status === "metadata_only").length}</div><div className="text-xs text-foreground/45">OA link / metadata only</div></div></div>
+                    {!manuscript.research_run_id ? <p className="mt-4 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">Link a completed research run in the Write tab before enriching sources.</p> : null}
+                    {linkedPapers.length ? <div className="mt-4 max-h-[520px] space-y-2 overflow-y-auto pr-1">{linkedPapers.map((paper) => { const citation = citations.find((item) => item.paper_id === paper.id); return <article key={paper.id} className="rounded-2xl border border-border bg-panel p-4"><div className="flex flex-wrap items-start gap-3"><div className="min-w-0 flex-1"><h3 className="text-sm font-medium text-foreground">{paper.title}</h3><p className="mt-1 text-xs text-foreground/45">{paper.authors.slice(0, 4).join(", ") || "Authors unavailable"}{paper.year ? ` · ${paper.year}` : ""}</p><div className="mt-2 flex flex-wrap gap-2"><Chip tone={paper.full_text_status === "available" ? "success" : paper.oa_status && !["unknown", "closed"].includes(paper.oa_status) ? "primary" : "default"}>{paper.full_text_status === "available" ? "Open full text" : paper.oa_status ? `OA: ${paper.oa_status}` : "Not enriched"}</Chip>{paper.full_text_license ? <Chip tone="default">{paper.full_text_license}</Chip> : null}{citation ? <Chip tone="success">In citation library</Chip> : null}</div></div><div className="flex shrink-0 flex-wrap gap-2">{paper.full_text_url || paper.url ? <a href={paper.full_text_url || paper.url || undefined} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center rounded-lg px-3 text-xs text-primary hover:bg-primary/10">Open source</a> : null}<Button variant="secondary" size="sm" onClick={() => void insertCitation(paper)} disabled={Boolean(busy)}><BookPlus size={13} />Insert citation</Button></div></div></article>; })}</div> : null}
+                  </section>
+
+                  <section className="glass-panel rounded-3xl p-5 sm:p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-xl text-foreground">Citation library</h2><p className="mt-1 text-xs text-foreground/50">Structured references from linked paper metadata. NOVA generates APA 7, IEEE, Vancouver, Chicago or Harvard output; journal-specific exceptions still require author review.</p></div><Button variant="secondary" onClick={appendBibliography} disabled={!citations.length}><BookPlus size={14} />Generate bibliography</Button></div>
+                    {!citations.length ? <EmptyState icon={BookPlus} title="Citation library is empty" body="Use Insert citation on a linked paper. The source will be stored here and a version-aware marker inserted into the editor." className="mt-4 py-8" /> : <div className="mt-4 space-y-2">{citations.map((citation, index) => { const paper = linkedPapers.find((item) => item.id === citation.paper_id); return <div key={citation.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-panel px-3 py-3"><span className="font-mono text-xs text-primary">{index + 1}</span><span className="min-w-0 flex-1 truncate text-sm text-foreground/70">{paper?.title || String(citation.csl_json.title ?? citation.citation_key)}</span>{paper ? <Button variant="ghost" size="sm" onClick={() => void insertCitation(paper)}>Insert</Button> : null}<Button variant="ghost" size="sm" onClick={() => void removeCitation(citation)}><Trash2 size={13} />Remove</Button></div>; })}</div>}
+                  </section>
+
+                  <section className="glass-panel rounded-3xl p-5 sm:p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-xl text-foreground">Journal requirement profile</h2><p className="mt-1 max-w-2xl text-sm text-foreground/55">Upload the current author guide as “Journal guidelines,” then extract measurable rules with exact source excerpts. The validator applies those rules to the current manuscript.</p></div><Button variant="secondary" onClick={() => void extractJournalRequirements()} disabled={Boolean(busy) || !manuscript.target_journal || !documents.some((item) => item.kind === "guidelines" && item.extraction_status === "complete")}>{busy === "journal" ? <Spinner size={14} /> : <ShieldCheck size={14} />}Extract journal requirements</Button></div>
+                    {journalProfile ? <div className="mt-4"><div className="flex flex-wrap gap-2"><Chip tone={journalProfile.status === "confirmed" ? "success" : "warning"}>{labelize(journalProfile.status)}</Chip><Chip tone="default">{journalProfile.journal_name}</Chip><span className="text-xs text-foreground/40">Updated {formatDate(journalProfile.updated_at)}</span></div><div className="mt-4 grid gap-3 md:grid-cols-2">{Object.entries(journalProfile.rules).filter(([, value]) => value !== null && (!Array.isArray(value) || value.length)).map(([key, value]) => <div key={key} className="rounded-xl border border-border bg-panel p-3"><div className="text-xs font-medium text-primary">{labelize(key)}</div><div className="mt-1 text-xs leading-relaxed text-foreground/60">{Array.isArray(value) ? value.join(" · ") : String(value)}</div></div>)}</div>{journalProfile.evidence.length ? <details className="mt-4 rounded-xl border border-border bg-panel p-4"><summary className="cursor-pointer text-sm font-medium text-foreground">Source evidence ({journalProfile.evidence.length})</summary><div className="mt-3 space-y-3">{journalProfile.evidence.map((item, index) => <blockquote key={index} className="border-l-2 border-primary/50 pl-3 text-xs leading-relaxed text-foreground/55"><span className="font-medium text-foreground">{labelize(item.rule)}:</span> “{item.excerpt}”</blockquote>)}</div></details> : null}</div> : <p className="mt-4 rounded-xl border border-border bg-panel/60 p-4 text-xs text-foreground/50">No journal rule profile extracted yet.</p>}
+                  </section>
+
+                  <section className="glass-panel rounded-3xl p-5 sm:p-6">
                     <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Private document workspace</h2><p className="mt-1 max-w-2xl text-sm text-foreground/55">Upload manuscript files, source papers, supplements or journal guidelines. PDF and DOCX text is extracted locally in your browser; the original file and extracted text remain access-controlled.</p></div><div className="flex flex-wrap items-end gap-2"><label className="text-xs text-foreground/55">Document kind<select value={uploadKind} onChange={(event) => setUploadKind(event.target.value as ManuscriptDocument["kind"])} className={`${FIELD_CLASS} mt-1`}><option value="manuscript">Manuscript</option><option value="source">Source paper</option><option value="supplement">Supplement</option><option value="guidelines">Journal guidelines</option><option value="data">Data note</option></select></label><input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" onChange={uploadDocument} /><Button onClick={() => fileInputRef.current?.click()} disabled={Boolean(busy)}>{busy === "upload" ? <Spinner size={14} /> : <Upload size={14} />}Upload</Button></div></div>
                     <div className="mt-4 rounded-xl border border-border bg-panel/60 px-4 py-3 text-xs text-foreground/55"><LockKeyhole size={14} className="mr-2 inline text-primary" />PDF, DOCX, TXT and Markdown · maximum 25 MB · private bucket · signed downloads expire after 60 seconds.</div>
                   </section>
@@ -640,8 +835,8 @@ export function WritingStudio() {
               {tab === "validate" ? (
                 <div className="space-y-5">
                   <section className="glass-panel rounded-3xl p-5 sm:p-6">
-                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Evidence & submission validation</h2><p className="mt-1 max-w-3xl text-sm text-foreground/55">Checks structure, language, methodology, statistics, ethics, provenance, journal metadata and deterministic text overlap against linked abstracts and uploaded source documents. DOI records are verified through Crossref and OpenAlex, including available retraction flags.</p></div><Button onClick={validateManuscript} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ShieldCheck size={15} />}{dirty ? "Save before validating" : "Run full validation"}</Button></div>
-                    <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-warning">Automated review is decision support, not peer review, legal/ethics approval or a guarantee of acceptance. The similarity score covers this manuscript's linked abstracts and uploaded sources only; it is not a plagiarism verdict or licensed-corpus clearance.</div>
+                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Evidence & submission validation</h2><p className="mt-1 max-w-3xl text-sm text-foreground/55">Checks structure, language, methodology, statistics, ethics, provenance, extracted journal rules and deterministic text overlap against available open full text, remaining abstracts and uploaded documents. DOI records are verified through Crossref and OpenAlex, including retraction flags.</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => void validateManuscript(true)} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ScanSearch size={15} />}Deterministic checks</Button><Button onClick={() => void validateManuscript(false)} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ShieldCheck size={15} />}{dirty ? "Save before validating" : "Run full validation"}</Button></div></div>
+                    <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-warning">Automated review is decision support, not peer review, legal/ethics approval or a guarantee of acceptance. Open-access full-text coverage improves the local score, but it is still not a plagiarism verdict or proprietary licensed-corpus clearance.</div>
                   </section>
                   {currentSimilarityReport ? (
                     <section className="glass-panel rounded-3xl p-5 sm:p-6" aria-labelledby="similarity-heading">

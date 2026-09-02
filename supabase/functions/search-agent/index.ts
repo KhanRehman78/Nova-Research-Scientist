@@ -377,9 +377,9 @@ async function searchOpenAlex(query: string): Promise<Paper[]> {
   const apiKey = Deno.env.get("OPENALEX_API_KEY");
   const keyParam = apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : "";
   const url =
-    `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=${
+    `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per_page=${
       LIMITS.openalex
-    }&mailto=hello@nova.research${keyParam}`;
+    }${keyParam}`;
   const res = await fetchWithRetry(url, {}, 2, 12_000);
   const data = await res.json();
   const items = data?.results ?? [];

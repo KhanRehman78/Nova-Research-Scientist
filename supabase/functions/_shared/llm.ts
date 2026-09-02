@@ -4,7 +4,7 @@ import OpenAI from "npm:openai@4";
 export function openaiClient(): OpenAI {
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key) throw new Error("OPENAI_API_KEY secret is not configured");
-  return new OpenAI({ apiKey: key });
+  return new OpenAI({ apiKey: key, timeout: 30_000, maxRetries: 0 });
 }
 
 /**

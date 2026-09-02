@@ -60,3 +60,6 @@ verify_jwt = true
 
 [functions.professional-agent]
 verify_jwt = true
+
+[functions.open-research]
+verify_jwt = true
