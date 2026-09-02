@@ -1,4 +1,5 @@
 export type Mode = "quick" | "deep" | "expert";
+export type ProfessionalRole = "professor" | "student" | "research_assistant" | "lab_admin";
 
 export type RunStatus =
   | "pending"
@@ -21,7 +22,12 @@ export type TaskStatus = "pending" | "running" | "done" | "failed";
 export interface Profile {
   id: string;
   full_name: string;
-  role: "professor" | "student" | "research_assistant";
+  role: ProfessionalRole;
+  institution: string;
+  department: string;
+  research_interests: string[];
+  expertise_level: "developing" | "intermediate" | "advanced" | "expert";
+  onboarding_completed: boolean;
   created_at: string;
 }
 
@@ -142,7 +148,7 @@ export interface SearchSummary {
 export type WritingMode = "human_authored" | "ai_assisted";
 export type ManuscriptStatus = "draft" | "validating" | "needs_revision" | "submission_ready";
 export type ManuscriptEditSource = "human" | "imported" | "ai_generated" | "ai_assisted";
-export type SuggestionCategory = "grammar" | "clarity" | "academic_tone" | "structure" | "citation" | "integrity";
+export type SuggestionCategory = "grammar" | "clarity" | "academic_tone" | "author_voice" | "structure" | "citation" | "integrity";
 export type FindingCategory =
   | "citation_integrity"
   | "evidence_support"
@@ -261,4 +267,71 @@ export interface AuthorSignoff {
   approved_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type ProfessionalAction =
+  | "topic_finder"
+  | "paper_simplifier"
+  | "research_roadmap"
+  | "thesis_coach"
+  | "professor_discovery"
+  | "literature_intelligence"
+  | "peer_review"
+  | "grant_proposal"
+  | "collaborator_finder"
+  | "supervision_feedback";
+
+export interface RoleAgentOutput {
+  id: string;
+  project_id: string;
+  user_id: string;
+  source_run_id: string | null;
+  action: ProfessionalAction;
+  title: string;
+  input_json: Record<string, unknown>;
+  output_json: Record<string, unknown>;
+  evidence_quality: "verified" | "grounded" | "requires_verification";
+  model: string | null;
+  created_at: string;
+}
+
+export interface SupervisionAssignment {
+  id: string;
+  project_id: string;
+  student_id: string;
+  supervisor_id: string;
+  research_title: string;
+  status: "proposed" | "active" | "on_hold" | "completed";
+  progress: number;
+  risk_summary: string;
+  next_milestone: string;
+  due_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupervisionUpdate {
+  id: string;
+  assignment_id: string;
+  author_id: string;
+  section: "topic" | "proposal" | "literature" | "methodology" | "data" | "analysis" | "writing" | "submission";
+  status: "not_started" | "in_progress" | "needs_review" | "approved" | "blocked";
+  progress: number;
+  note: string;
+  ai_feedback: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface LabAnalytics {
+  members: number;
+  active_runs: number;
+  completed_runs: number;
+  papers: number;
+  reports: number;
+  manuscripts: number;
+  submission_ready: number;
+  supervised_students: number;
+  average_student_progress: number;
+  open_risks: number;
+  generated_at: string;
 }

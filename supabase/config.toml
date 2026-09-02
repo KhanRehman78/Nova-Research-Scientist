@@ -57,3 +57,6 @@ verify_jwt = true
 
 [functions.paper-validator]
 verify_jwt = true
+
+[functions.professional-agent]
+verify_jwt = true

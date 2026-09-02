@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite optimize && vite",
     "build": "node scripts/build-site.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:professional": "node scripts/professional-smoke-test.mjs",
+    "test:professional:live": "node scripts/run-professional-live-test.mjs",
+    "test:writing:live": "node scripts/run-writing-live-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",

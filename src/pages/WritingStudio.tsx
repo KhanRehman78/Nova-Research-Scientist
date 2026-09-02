@@ -498,7 +498,7 @@ export function WritingStudio() {
         <PageHeader
           eyebrow="Writing & Validation Studio"
           title="From working draft to an auditable submission"
-          subtitle="Write with explicit authorship controls, validate claims and citations, preserve provenance, and finalize only after human sign-off. NOVA never guarantees journal acceptance or AI-detector outcomes."
+          subtitle="Correct grammar, strengthen natural academic voice, validate claims and citations, preserve provenance, and finalize only after human sign-off. NOVA never guarantees journal acceptance or AI-detector outcomes."
           right={manuscript ? <><Chip tone={statusTone(manuscript.status)}>{labelize(manuscript.status)}</Chip><Chip tone="default">{wordCount.toLocaleString()} words</Chip></> : null}
         />
 

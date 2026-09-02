@@ -15,6 +15,7 @@ import { HypothesisStudio } from "./pages/HypothesisStudio";
 import { ExperimentDesigner } from "./pages/ExperimentDesigner";
 import { ReportGenerator } from "./pages/ReportGenerator";
 import { WritingStudio } from "./pages/WritingStudio";
+import { ProfessionalStudio } from "./pages/ProfessionalStudio";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="writing" element={<RequireAuth><WritingStudio /></RequireAuth>} />
+              <Route path="professional" element={<RequireAuth><ProfessionalStudio /></RequireAuth>} />
               <Route path="plan/:runId" element={<RequireAuth><Planning /></RequireAuth>} />
               <Route path="knowledge/:runId" element={<RequireAuth><KnowledgeExplorer /></RequireAuth>} />
               <Route path="literature/:runId" element={<RequireAuth><LiteratureRoom /></RequireAuth>} />

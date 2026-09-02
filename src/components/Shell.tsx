@@ -17,6 +17,7 @@ import {
   CircleCheck,
   TriangleAlert,
   PenLine,
+  GraduationCap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { supabase } from "../lib/supabase";
@@ -40,6 +41,7 @@ const ICONS: Record<string, LucideIcon> = {
 const NAV = [
   { key: "dashboard", label: "Dashboard", sub: "Launch & overview", icon: LayoutDashboard, route: () => "/dashboard" },
   { key: "writing", label: "Writing Studio", sub: "Write, validate & submit", icon: PenLine, route: () => "/writing" },
+  { key: "professional", label: "Professional Studio", sub: "Student · professor · lab", icon: GraduationCap, route: () => "/professional" },
   ...STAGES.map((s) => ({
     key: s.key,
     label: s.label,

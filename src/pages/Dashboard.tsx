@@ -15,6 +15,7 @@ import {
   FolderOpen,
   Search,
   UsersRound,
+  GraduationCap,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useRun } from "../context/RunContext";
@@ -24,6 +25,7 @@ import {
   MODE_META,
   STAGES,
   routeForStage,
+  ROLE_LABEL,
 } from "../lib/constants";
 import type { Mode, ResearchRun } from "../lib/types";
 import { timeAgo } from "../lib/format";
@@ -58,7 +60,7 @@ const EXAMPLE_QUERIES = [
 ];
 
 export function Dashboard() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const { reset } = useRun();
   const [query, setQuery] = useState("");
@@ -203,10 +205,12 @@ export function Dashboard() {
     <div className="bg-dotgrid-glow min-h-full">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-10">
         <PageHeader
-          eyebrow="Research Dashboard"
-          title="Launch autonomous research"
+          eyebrow={`${ROLE_LABEL[profile?.role ?? "student"] ?? "Researcher"} Dashboard`}
+          title={profile?.role === "professor" || profile?.role === "lab_admin" ? "Research intelligence and supervision" : "Launch autonomous research"}
           subtitle="Describe the question. NOVA plans the approach, gathers the literature, finds the gap, and drafts a hypothesis and proposal."
         />
+
+        {user ? <Link to="/professional" className="glass-soft mb-6 flex items-center justify-between gap-4 rounded-2xl border-secondary/30 p-4 transition-colors hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-ring"><span className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary/10 text-secondary"><GraduationCap size={19} /></span><span><span className="block font-heading text-base">Open {ROLE_LABEL[profile?.role ?? "student"] ?? "Professional"} Studio</span><span className="block text-xs text-foreground/50">Role-aware topic, paper, roadmap, reviewer, supervision and lab workflows.</span></span></span><ChevronRight size={18} className="shrink-0 text-secondary" /></Link> : null}
 
         {/* Launch card */}
         <section aria-label="Start a research run" className="glass-panel rounded-3xl p-6 sm:p-8">

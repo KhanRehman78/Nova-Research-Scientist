@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { Button, ErrorBanner, Spinner } from "./ui";
 import { APP_NAME, APP_TAGLINE } from "../lib/constants";
+import type { ProfessionalRole } from "../lib/types";
 
 const STAGE_PREVIEW = [
   { icon: Network, label: "Search 5 academic sources" },
@@ -30,6 +31,7 @@ export function AuthScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [role, setRole] = useState<Exclude<ProfessionalRole, "lab_admin">>("student");
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +56,7 @@ export function AuthScreen() {
     setBusy(true);
     const res = mode === "signin"
       ? await signIn(email.trim(), password)
-      : await signUp(email.trim(), password, name.trim());
+      : await signUp(email.trim(), password, name.trim(), role);
     setBusy(false);
     if (res.error === "confirm") {
       setConfirmMsg(
@@ -153,17 +155,32 @@ export function AuthScreen() {
 
           <form onSubmit={submit} className="mt-6 space-y-4">
             {mode === "signup" ? (
-              <label className="block">
-                <span className="mb-1.5 block text-sm text-foreground/70">Full name</span>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Dr. Ada Lovelace"
-                  autoComplete="name"
-                  className="w-full rounded-xl border border-border bg-panel px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/35 focus:border-primary focus:outline-2 focus:outline-primary/50"
-                />
-              </label>
+              <>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm text-foreground/70">Full name</span>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Dr. Ada Lovelace"
+                    autoComplete="name"
+                    className="w-full rounded-xl border border-border bg-panel px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/35 focus:border-primary focus:outline-2 focus:outline-primary/50"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm text-foreground/70">Professional role</span>
+                  <select
+                    value={role}
+                    onChange={(event) => setRole(event.target.value as Exclude<ProfessionalRole, "lab_admin">)}
+                    className="w-full cursor-pointer rounded-xl border border-border bg-panel px-4 py-2.5 text-sm text-foreground focus:border-primary focus:outline-2 focus:outline-primary/50"
+                  >
+                    <option value="student">Student</option>
+                    <option value="professor">Professor / Supervisor</option>
+                    <option value="research_assistant">Research Assistant</option>
+                  </select>
+                  <span className="mt-1 block text-[11px] text-foreground/45">Lab Admin access is assigned by an authorized administrator.</span>
+                </label>
+              </>
             ) : null}
 
             <label className="block">

@@ -8,7 +8,7 @@ import {
 import type { ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import type { Profile } from "../lib/types";
+import type { ProfessionalRole, Profile } from "../lib/types";
 
 type AuthResult = { error: string | null };
 
@@ -22,7 +22,9 @@ interface AuthContextValue {
     email: string,
     password: string,
     fullName: string,
+    role: Exclude<ProfessionalRole, "lab_admin">,
   ) => Promise<AuthResult>;
+  refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -73,19 +75,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       fullName: string,
+      role: Exclude<ProfessionalRole, "lab_admin">,
     ): Promise<AuthResult> => {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName }, emailRedirectTo: `${window.location.origin}/` },
+        options: { data: { full_name: fullName, role }, emailRedirectTo: `${window.location.origin}/` },
       });
       if (error) return { error: friendlyAuthError(error.message) };
-      // Ensure a profile row exists (RLS allows self-insert/update).
       if (data.user) {
-        await supabase.from("profiles").upsert(
-          { id: data.user.id, full_name: fullName || "", role: "student" },
-          { onConflict: "id" },
-        );
         refreshProfile(data.user.id);
       }
       if (data.session) return { error: null };
@@ -99,9 +97,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   }, []);
 
+  const refreshCurrentProfile = useCallback(async () => {
+    if (user?.id) await refreshProfile(user.id);
+  }, [refreshProfile, user?.id]);
+
   return (
     <AuthContext.Provider
-      value={{ session, user, profile, loading, signIn, signUp, signOut }}
+      value={{ session, user, profile, loading, signIn, signUp, signOut, refreshProfile: refreshCurrentProfile }}
     >
       {children}
     </AuthContext.Provider>

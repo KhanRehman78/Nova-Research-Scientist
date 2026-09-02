@@ -57,4 +57,5 @@ export const ROLE_LABEL: Record<string, string> = {
   professor: "Professor",
   student: "Student",
   research_assistant: "Research Assistant",
+  lab_admin: "Research Lab Admin",
 };
