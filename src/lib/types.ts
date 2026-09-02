@@ -193,10 +193,58 @@ export interface Manuscript {
   };
   validation_completed_at: string | null;
   last_validated_sha256: string | null;
+  similarity_score: number | null;
+  similarity_screened_at: string | null;
   last_edit_source: ManuscriptEditSource;
   last_change_summary: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface SimilaritySectionScore {
+  section: string;
+  similarity: number;
+  matched_words: number;
+  total_words: number;
+}
+
+export interface SimilarityReport {
+  id: string;
+  manuscript_id: string;
+  content_sha256: string;
+  overall_similarity: number;
+  matched_word_count: number;
+  total_word_count: number;
+  match_count: number;
+  section_scores: SimilaritySectionScore[];
+  corpus_scope: {
+    linked_paper_abstracts?: number;
+    uploaded_sources?: number;
+    sources_compared?: number;
+    proprietary_database_coverage?: boolean;
+    open_web_coverage?: boolean;
+  };
+  methodology: Record<string, unknown>;
+  disclaimer: string;
+  status: "limited_corpus" | "review_required" | "screened";
+  created_at: string;
+}
+
+export interface SimilarityMatch {
+  id: string;
+  report_id: string;
+  manuscript_id: string;
+  section: string;
+  manuscript_excerpt: string;
+  source_type: "linked_paper" | "uploaded_source";
+  source_title: string;
+  source_reference: string | null;
+  source_excerpt: string;
+  similarity: number;
+  matched_word_count: number;
+  classification: "quoted_or_cited" | "near_verbatim" | "substantial_overlap" | "phrase_overlap";
+  requires_human_review: boolean;
+  created_at: string;
 }
 
 export interface ManuscriptVersion {

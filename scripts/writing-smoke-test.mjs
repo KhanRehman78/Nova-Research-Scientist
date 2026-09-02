@@ -160,8 +160,15 @@ Transparency and reproducibility in artificial intelligence. https://doi.org/10.
   const { data: draftVersions } = await client.from("manuscript_versions").select("source").eq("manuscript_id", manuscriptId).order("version_number");
   check(draftVersions?.some((version) => version.source === "ai_generated"), "AI-generated provenance version missing");
 
+  const { error: restoreError } = await client.from("manuscripts").update({
+    content: humanContent,
+    last_edit_source: "human",
+    last_change_summary: "Author restored controlled validation fixture",
+  }).eq("id", manuscriptId);
+  check(!restoreError, "Could not restore controlled similarity fixture", restoreError?.message);
+
   const sourcePath = `${manuscriptId}/${crypto.randomUUID()}-source.txt`;
-  const sourceBlob = new Blob(["Temporary source evidence for RLS and storage verification."], { type: "text/plain" });
+  const sourceBlob = new Blob(["Clinical prediction systems can influence consequential care decisions. Transparent reporting, calibrated uncertainty, subgroup analysis, and reproducible evaluation are therefore essential. This temporary source exists only for RLS, storage, and known-overlap verification."], { type: "text/plain" });
   const { error: uploadError } = await client.storage.from("manuscripts").upload(sourcePath, sourceBlob);
   check(!uploadError, "Private storage upload failed", uploadError?.message);
   const { data: document, error: documentError } = await client.from("manuscript_documents").insert({
@@ -184,6 +191,22 @@ Transparency and reproducibility in artificial intelligence. https://doi.org/10.
   check(validation.findings?.length > 0, "Validator produced no findings");
   check(validation.readiness?.gates?.length === 6, "Readiness gate set is incomplete");
   check(validation.doi_checks?.some((item) => item.doi === "10.1038/s41591-020-1031-7"), "DOI verification did not run");
+  check(validation.similarity_report, "Similarity report missing");
+  check(validation.similarity_report.overall_similarity > 0, "Known source overlap was not scored");
+  check(validation.similarity_matches?.length > 0, "Matched passages were not returned");
+  check(validation.similarity_matches.some((match) => match.section === "Introduction"), "Introduction overlap was not localized");
+  const { data: storedSimilarityReport, error: similarityReadError } = await client.from("similarity_reports").select("*").eq("manuscript_id", manuscriptId).single();
+  check(storedSimilarityReport && !similarityReadError, "Similarity report RLS read failed", similarityReadError?.message);
+  const { data: storedSimilarityMatches, error: matchReadError } = await client.from("similarity_matches").select("*").eq("manuscript_id", manuscriptId);
+  check(storedSimilarityMatches?.length === validation.similarity_matches.length && !matchReadError, "Similarity match RLS read failed", matchReadError?.message);
+  const { error: forgedSimilarityError } = await client.from("similarity_reports").insert({
+    manuscript_id: manuscriptId,
+    content_sha256: await sha256(validation.manuscript.content),
+    overall_similarity: 0,
+    total_word_count: 1,
+    disclaimer: "Forged client report",
+  });
+  check(Boolean(forgedSimilarityError), "Client was able to forge a similarity report");
   const { error: forgedFindingError } = await client.from("validation_findings").insert({
     manuscript_id: manuscriptId,
     category: "provenance",
@@ -225,6 +248,8 @@ Transparency and reproducibility in artificial intelligence. https://doi.org/10.
       versions: draftVersions?.length,
       suggestions: humanReview.suggestions?.length ?? 0,
       findings: validation.findings.length,
+      similarity_score: validation.similarity_report.overall_similarity,
+      similarity_matches: validation.similarity_matches.length,
       gates: validation.readiness.gates.map((gate) => `${gate.key}:${gate.status}`),
       private_document: document.filename,
     },

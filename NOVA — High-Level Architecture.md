@@ -84,6 +84,8 @@ One Edge Function per agent, orchestrated by \`research-manager\`. Each function
 \- \`hypotheses\` — id, run\_id, title, hypothesis, objectives, expected\_contribution, confidence, novelty, created\_at.
 \- \`experiments\` — id, run\_id, dataset, architecture\_json, algorithm, metrics\_json.
 \- \`reports\` — id, run\_id, title, abstract, sections\_json, created\_at.
+\- \`similarity\_reports\` — one server-generated, content-hash-bound report per manuscript with overall/section scores, corpus scope, methodology, disclaimer, and review state.
+\- \`similarity\_matches\` — exact manuscript excerpt, matched source identity/reference, normalized shared phrase, match strength/classification, and human-review flag.
 
 \*\*RLS\*\*: users read/write only projects they own or are members of. Runs/papers/matrix/gaps/hypotheses/reports inherit access through their project.
 
@@ -117,6 +119,8 @@ The Professional Studio is a role-aware layer over the same authenticated projec
 \- \`get_lab_analytics\` derives project-scoped institutional metrics after membership authorization.
 \- \`professional-agent\` uses action-specific strict JSON schemas. Professor-only actions verify the caller's profile role and every action first verifies project access through RLS.
 \- Discovery, intelligence, reviewer, grant, collaborator, and supervision outputs never broaden the caller's data access and never call the LLM from the browser.
+\- \`paper-validator\` performs deterministic seven-word-shingle overlap screening after authorization. It compares only linked abstracts and extracted uploaded source/supplement text, stores the report with service-role privileges, and returns matches through read-only project RLS.
+\- The client cannot forge or modify similarity records. Manuscript hashes prevent stale scores from being presented for edited content, and server finalization continues to block on unresolved high-risk human-review findings.
 
 Evidence states:
 

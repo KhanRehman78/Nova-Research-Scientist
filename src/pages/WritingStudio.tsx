@@ -15,6 +15,7 @@ import {
   Library,
   LockKeyhole,
   PenLine,
+  ScanSearch,
   Plus,
   Save,
   ShieldCheck,
@@ -44,6 +45,8 @@ import type {
   ManuscriptDocument,
   ManuscriptVersion,
   ResearchRun,
+  SimilarityMatch,
+  SimilarityReport,
   ValidationFinding,
   WritingMode,
   WritingSuggestion,
@@ -74,9 +77,9 @@ const MODE_COPY: Record<WritingMode, { title: string; description: string }> = {
 };
 
 function statusTone(status: string): "default" | "primary" | "success" | "warning" | "danger" | "violet" {
-  if (status === "submission_ready" || status === "pass" || status === "resolved") return "success";
+  if (status === "submission_ready" || status === "pass" || status === "resolved" || status === "screened") return "success";
   if (status === "blocking") return "danger";
-  if (status === "warning" || status === "needs_revision") return "warning";
+  if (status === "warning" || status === "needs_revision" || status === "limited_corpus" || status === "review_required") return "warning";
   if (status === "human_review") return "violet";
   if (status === "validating") return "primary";
   return "default";
@@ -103,6 +106,8 @@ export function WritingStudio() {
   const [documents, setDocuments] = useState<ManuscriptDocument[]>([]);
   const [versions, setVersions] = useState<ManuscriptVersion[]>([]);
   const [signoffs, setSignoffs] = useState<AuthorSignoff[]>([]);
+  const [similarityReport, setSimilarityReport] = useState<SimilarityReport | null>(null);
+  const [similarityMatches, setSimilarityMatches] = useState<SimilarityMatch[]>([]);
   const [tab, setTab] = useState<Tab>("write");
   const [uploadKind, setUploadKind] = useState<ManuscriptDocument["kind"]>("source");
   const [dirty, setDirty] = useState(false);
@@ -170,17 +175,20 @@ export function WritingStudio() {
   useEffect(() => {
     if (!manuscript?.id) {
       setSuggestions([]); setFindings([]); setDocuments([]); setVersions([]); setSignoffs([]);
+      setSimilarityReport(null); setSimilarityMatches([]);
       return;
     }
     let cancelled = false;
     const manuscriptId = manuscript.id;
     (async () => {
-      const [suggestionRows, findingRows, documentRows, versionRows, signoffRows] = await Promise.all([
+      const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows] = await Promise.all([
         supabase.from("writing_suggestions").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("validation_findings").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("manuscript_documents").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("manuscript_versions").select("*").eq("manuscript_id", manuscriptId).order("version_number", { ascending: false }).limit(50),
         supabase.from("author_signoffs").select("*").eq("manuscript_id", manuscriptId),
+        supabase.from("similarity_reports").select("*").eq("manuscript_id", manuscriptId).maybeSingle(),
+        supabase.from("similarity_matches").select("*").eq("manuscript_id", manuscriptId).order("similarity", { ascending: false }),
       ]);
       if (cancelled) return;
       setSuggestions((suggestionRows.data ?? []) as WritingSuggestion[]);
@@ -188,6 +196,8 @@ export function WritingStudio() {
       setDocuments((documentRows.data ?? []) as ManuscriptDocument[]);
       setVersions((versionRows.data ?? []) as ManuscriptVersion[]);
       setSignoffs((signoffRows.data ?? []) as AuthorSignoff[]);
+      setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
+      setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
     })();
     return () => { cancelled = true; };
   }, [manuscript?.id]);
@@ -204,6 +214,8 @@ export function WritingStudio() {
   const currentFindings = findings.filter((item) => !contentHash || item.content_sha256 === contentHash);
   const openReviewBlockers = currentFindings.filter((item) => item.status === "open" && (item.severity === "blocking" || item.severity === "human_review"));
   const ownSignoff = signoffs.find((item) => item.profile_id === user?.id && item.approved && item.content_sha256 === contentHash);
+  const currentSimilarityReport = similarityReport?.content_sha256 === contentHash ? similarityReport : null;
+  const currentSimilarityMatches = currentSimilarityReport ? similarityMatches : [];
   const isReady = manuscript?.status === "submission_ready";
 
   const updateManuscript = <K extends keyof Manuscript>(key: K, value: Manuscript[K]) => {
@@ -213,18 +225,22 @@ export function WritingStudio() {
   };
 
   const refreshAssets = async (id: string) => {
-    const [suggestionRows, findingRows, documentRows, versionRows, signoffRows] = await Promise.all([
+    const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows] = await Promise.all([
       supabase.from("writing_suggestions").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("validation_findings").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("manuscript_documents").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("manuscript_versions").select("*").eq("manuscript_id", id).order("version_number", { ascending: false }).limit(50),
       supabase.from("author_signoffs").select("*").eq("manuscript_id", id),
+      supabase.from("similarity_reports").select("*").eq("manuscript_id", id).maybeSingle(),
+      supabase.from("similarity_matches").select("*").eq("manuscript_id", id).order("similarity", { ascending: false }),
     ]);
     setSuggestions((suggestionRows.data ?? []) as WritingSuggestion[]);
     setFindings((findingRows.data ?? []) as ValidationFinding[]);
     setDocuments((documentRows.data ?? []) as ManuscriptDocument[]);
     setVersions((versionRows.data ?? []) as ManuscriptVersion[]);
     setSignoffs((signoffRows.data ?? []) as AuthorSignoff[]);
+    setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
+    setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
   };
 
   const createManuscript = async () => {
@@ -364,8 +380,10 @@ export function WritingStudio() {
       setManuscript(data.manuscript as Manuscript);
       setManuscripts((items) => items.map((item) => item.id === manuscript.id ? data.manuscript as Manuscript : item));
       setFindings((data.findings ?? []) as ValidationFinding[]);
+      setSimilarityReport((data.similarity_report ?? null) as SimilarityReport | null);
+      setSimilarityMatches((data.similarity_matches ?? []) as SimilarityMatch[]);
       setTab("validate");
-      setNotice("Validation complete. Automated passes are limited checks; resolve every human-review item before finalization.");
+      setNotice("Validation and source-overlap screening complete. Review every match and resolve all human-review items before finalization.");
     }
     setBusy(null);
   };
@@ -553,6 +571,7 @@ export function WritingStudio() {
                 <div className="mt-2 flex items-center justify-between text-sm"><span>Versions</span><span className="font-mono text-primary">{versionCount}</span></div>
                 <div className="mt-1 flex items-center justify-between text-sm"><span>Documents</span><span className="font-mono text-primary">{documents.length}</span></div>
                 <div className="mt-1 flex items-center justify-between text-sm"><span>Open findings</span><span className="font-mono text-primary">{currentFindings.filter((item) => item.status === "open").length}</span></div>
+                <div className="mt-1 flex items-center justify-between text-sm"><span>Similarity</span><span className="font-mono text-primary">{currentSimilarityReport ? `${currentSimilarityReport.overall_similarity.toFixed(2)}%` : "Not screened"}</span></div>
               </div>
             </aside>
 
@@ -621,9 +640,43 @@ export function WritingStudio() {
               {tab === "validate" ? (
                 <div className="space-y-5">
                   <section className="glass-panel rounded-3xl p-5 sm:p-6">
-                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Evidence & submission validation</h2><p className="mt-1 max-w-3xl text-sm text-foreground/55">Checks structure, language, methodology, statistics, ethics, provenance and journal metadata. DOI records are verified through Crossref and OpenAlex, including available retraction flags.</p></div><Button onClick={validateManuscript} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ShieldCheck size={15} />}{dirty ? "Save before validating" : "Run full validation"}</Button></div>
-                    <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-warning">Automated review is decision support, not peer review, legal/ethics approval, plagiarism certification or a guarantee of acceptance. Human-review findings are intentionally blocking until a qualified person resolves them.</div>
+                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Evidence & submission validation</h2><p className="mt-1 max-w-3xl text-sm text-foreground/55">Checks structure, language, methodology, statistics, ethics, provenance, journal metadata and deterministic text overlap against linked abstracts and uploaded source documents. DOI records are verified through Crossref and OpenAlex, including available retraction flags.</p></div><Button onClick={validateManuscript} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ShieldCheck size={15} />}{dirty ? "Save before validating" : "Run full validation"}</Button></div>
+                    <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-warning">Automated review is decision support, not peer review, legal/ethics approval or a guarantee of acceptance. The similarity score covers this manuscript's linked abstracts and uploaded sources only; it is not a plagiarism verdict or licensed-corpus clearance.</div>
                   </section>
+                  {currentSimilarityReport ? (
+                    <section className="glass-panel rounded-3xl p-5 sm:p-6" aria-labelledby="similarity-heading">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><ScanSearch size={21} /></div>
+                          <div><h3 id="similarity-heading" className="font-heading text-xl text-foreground">Source-overlap report</h3><p className="mt-1 max-w-2xl text-sm text-foreground/55">Auditable passage matching for the exact saved manuscript version. References and bibliography are excluded from the score.</p></div>
+                        </div>
+                        <Chip tone={statusTone(currentSimilarityReport.status)}>{labelize(currentSimilarityReport.status)}</Chip>
+                      </div>
+
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-2xl border border-primary/25 bg-primary/10 p-4"><div className="font-mono text-3xl font-semibold text-primary">{currentSimilarityReport.overall_similarity.toFixed(2)}%</div><div className="mt-1 text-xs uppercase tracking-wider text-foreground/45">Similarity score</div></div>
+                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentSimilarityReport.match_count}</div><div className="mt-1 text-xs text-foreground/45">Matched passages</div></div>
+                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentSimilarityReport.matched_word_count.toLocaleString()}</div><div className="mt-1 text-xs text-foreground/45">Overlapping screened words</div></div>
+                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentSimilarityReport.corpus_scope.sources_compared ?? 0}</div><div className="mt-1 text-xs text-foreground/45">Available sources compared</div></div>
+                      </div>
+
+                      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.65fr)]">
+                        <div>
+                          <h4 className="text-sm font-medium text-foreground">Section breakdown</h4>
+                          <div className="mt-3 space-y-3">
+                            {currentSimilarityReport.section_scores.map((section) => <div key={section.section} className="rounded-xl border border-border bg-panel p-3"><div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium text-foreground">{section.section}</span><span className="font-mono text-primary">{section.similarity.toFixed(2)}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, section.similarity)}%` }} /></div><div className="mt-1 text-[11px] text-foreground/40">{section.matched_words} of {section.total_words} screened words</div></div>)}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-medium text-foreground">Where overlap was found</h4><span className="text-xs text-foreground/40">Highest match first</span></div>
+                          {!currentSimilarityMatches.length ? <EmptyState icon={ScanSearch} title="No overlap found in the available corpus" body="This is not comprehensive plagiarism clearance. Use your institution's licensed similarity service for the final manuscript." className="mt-3 py-8" /> : <div className="mt-3 space-y-3">{currentSimilarityMatches.map((match) => <article key={match.id} className="rounded-2xl border border-border bg-panel p-4"><div className="flex flex-wrap items-center gap-2"><Chip tone="default">{match.section}</Chip><Chip tone={match.requires_human_review ? "warning" : "primary"}>{labelize(match.classification)}</Chip><span className="ml-auto font-mono text-sm text-primary">{match.similarity.toFixed(1)}% passage match</span></div><blockquote className="mt-3 border-l-2 border-warning/60 pl-3 text-sm leading-relaxed text-foreground/75">“{match.manuscript_excerpt}”</blockquote><div className="mt-3 rounded-xl bg-background/45 p-3"><div className="text-xs font-medium text-foreground">Source: {match.source_title}</div><div className="mt-1 text-[11px] text-foreground/45">{labelize(match.source_type)} · {match.matched_word_count} contiguous shared words</div><div className="mt-2 text-xs leading-relaxed text-foreground/55"><span className="font-medium">Normalized shared phrase:</span> “{match.source_excerpt}”</div>{match.source_reference?.startsWith("http") ? <a href={match.source_reference} target="_blank" rel="noreferrer" className="mt-2 inline-block break-all text-xs text-primary hover:underline">Open source reference</a> : match.source_reference ? <div className="mt-2 break-all text-[11px] text-foreground/35">Reference: {match.source_reference}</div> : null}</div>{match.requires_human_review ? <p className="mt-3 text-xs leading-relaxed text-warning">Human review required: check quotation, citation, permissions and acceptable reuse in context.</p> : null}</article>)}</div>}
+                        </div>
+                      </div>
+
+                      <p className="mt-5 rounded-xl border border-border bg-panel/60 px-4 py-3 text-xs leading-relaxed text-foreground/50">{currentSimilarityReport.disclaimer} Screened {formatDate(currentSimilarityReport.created_at)}.</p>
+                    </section>
+                  ) : null}
                   {manuscript.readiness?.gates?.length ? <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{manuscript.readiness.gates.map((gate) => <div key={gate.key} className="glass-soft rounded-2xl p-4"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium text-foreground">{gate.label}</span><Chip tone={statusTone(gate.status)}>{labelize(gate.status)}</Chip></div><p className="mt-2 text-xs leading-relaxed text-foreground/55">{gate.detail}</p></div>)}</section> : null}
                   {!currentFindings.length ? <EmptyState icon={BookCheck} title="No validation record for this draft" body="Save at least 500 characters, specify the target journal, then run full validation." /> : <section className="space-y-3">{currentFindings.map((finding) => <article key={finding.id} className={`glass-panel rounded-2xl border-l-4 p-4 ${finding.severity === "blocking" ? "border-l-destructive" : finding.severity === "human_review" ? "border-l-secondary" : finding.severity === "warning" ? "border-l-warning" : "border-l-success"}`}><div className="flex flex-wrap items-center gap-2"><Chip tone={statusTone(finding.severity)}>{labelize(finding.severity)}</Chip><Chip tone="default">{labelize(finding.category)}</Chip>{finding.status !== "open" ? <Chip tone="success">{labelize(finding.status)}</Chip> : null}</div><h3 className="mt-3 font-medium text-foreground">{finding.title}</h3><p className="mt-1 text-sm leading-relaxed text-foreground/65">{finding.description}</p>{finding.recommendation ? <p className="mt-2 text-sm leading-relaxed text-primary/80"><span className="font-medium">Action:</span> {finding.recommendation}</p> : null}{finding.status === "open" && finding.severity !== "pass" && finding.severity !== "info" ? <div className="mt-3"><Button variant="secondary" size="sm" onClick={() => void resolveFinding(finding)}>{finding.severity === "warning" ? "Accept documented risk" : "Mark human review resolved"}</Button></div> : null}</article>)}</section>}
                 </div>
@@ -641,6 +694,7 @@ export function WritingStudio() {
                       <div className="mt-4 space-y-3">
                         <ReadinessRow label="Current content saved" passed={!dirty} detail={dirty ? "Save the current editor changes." : `SHA-256 ${contentHash.slice(0, 12)}…`} />
                         <ReadinessRow label="Current version validated" passed={Boolean(manuscript.validation_completed_at && manuscript.last_validated_sha256 === contentHash)} detail={manuscript.validation_completed_at ? formatDate(manuscript.validation_completed_at) : "Run full validation."} />
+                        <ReadinessRow label="Similarity report matches current content" passed={Boolean(currentSimilarityReport)} detail={currentSimilarityReport ? `${currentSimilarityReport.overall_similarity.toFixed(2)}% local-corpus similarity · ${currentSimilarityReport.match_count} passage(s)` : "Run full validation for this exact saved version."} />
                         <ReadinessRow label="Blocking & human-review items resolved" passed={openReviewBlockers.length === 0 && currentFindings.length > 0} detail={openReviewBlockers.length ? `${openReviewBlockers.length} unresolved item(s).` : currentFindings.length ? "No open blockers." : "No validation record."} />
                         <ReadinessRow label="Author attestation matches content" passed={Boolean(ownSignoff)} detail={ownSignoff ? formatDate(ownSignoff.approved_at ?? ownSignoff.updated_at) : "Sign the exact saved version."} />
                       </div>

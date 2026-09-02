@@ -115,6 +115,9 @@
 \- Lab analytics use compact operational cards and are visible only to Professor and Lab Admin roles.
 \- Paper Simplifier supports PDF/DOCX upload and visible local extraction before analysis.
 \- Human-authored mode describes author-voice guidance without detector-evasion or authorship-certification language.
+\- Similarity is presented as a distinct evidence panel: overall percentage first, followed by corpus size, match count, screened-word count, and per-section progress bars.
+\- Every overlap card pairs the exact manuscript passage with source identity, normalized shared phrase, match strength, classification, and a visible human-review instruction.
+\- Zero or low overlap never uses a “plagiarism free” success state. Limited-corpus scope and licensed-screening limitations remain adjacent to the score, including when no match is found.
 
 \#\#\# Cards
 

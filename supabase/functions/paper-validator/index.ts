@@ -37,6 +37,26 @@ type Finding = {
   evidence: Record<string, unknown>;
 };
 
+type SimilaritySource = {
+  type: "linked_paper" | "uploaded_source";
+  title: string;
+  reference: string;
+  text: string;
+};
+
+type SimilarityMatch = {
+  section: string;
+  manuscript_excerpt: string;
+  source_type: SimilaritySource["type"];
+  source_title: string;
+  source_reference: string;
+  source_excerpt: string;
+  similarity: number;
+  matched_word_count: number;
+  classification: "quoted_or_cited" | "near_verbatim" | "substantial_overlap" | "phrase_overlap";
+  requires_human_review: boolean;
+};
+
 async function sha256(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -76,6 +96,158 @@ function sectionsPresent(content: string, names: string[]): boolean {
   return names.some((name) => new RegExp(`(^|\\n)#{0,3}\\s*${name}\\b`, "i").test(lower));
 }
 
+const NGRAM_SIZE = 7;
+
+function words(value: string): string[] {
+  return (value.toLocaleLowerCase().match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu) ?? [])
+    .map((token) => token.replace(/[’]/g, "'"));
+}
+
+function ngrams(tokens: string[], size = NGRAM_SIZE): { value: string; start: number }[] {
+  const result: { value: string; start: number }[] = [];
+  for (let index = 0; index <= tokens.length - size; index += 1) {
+    result.push({ value: tokens.slice(index, index + size).join(" "), start: index });
+  }
+  return result;
+}
+
+function manuscriptSegments(content: string): { section: string; text: string; tokens: string[] }[] {
+  const segments: { section: string; text: string; tokens: string[] }[] = [];
+  let section = "Unsectioned";
+  let paragraph: string[] = [];
+  const flush = () => {
+    const text = paragraph.join(" ").trim();
+    paragraph = [];
+    if (!text || /^(references|bibliography|works cited)$/i.test(section)) return;
+    const sentences = text.split(/(?<=[.!?])\s+(?=[\p{Lu}\p{N}])/u);
+    for (const sentence of sentences) {
+      const tokens = words(sentence);
+      if (tokens.length >= 10) segments.push({ section, text: sentence.trim(), tokens });
+    }
+  };
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    if (heading) {
+      flush();
+      section = heading[1].trim().slice(0, 160);
+    } else if (!line) {
+      flush();
+    } else {
+      paragraph.push(line);
+    }
+  }
+  flush();
+  return segments.slice(0, 1200);
+}
+
+function looksQuotedOrCited(text: string): boolean {
+  return /[“"][^”"]{20,}[”"]/.test(text)
+    || /\[[0-9,;\s–-]+\]/.test(text)
+    || /\([A-Z][^)]{0,80},\s*(?:19|20)\d{2}[a-z]?\)/.test(text)
+    || /10\.\d{4,9}\//i.test(text);
+}
+
+function longestCoveredRun(covered: Set<number>, tokens: string[]): string {
+  let bestStart = 0;
+  let bestLength = 0;
+  let currentStart = 0;
+  let currentLength = 0;
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (covered.has(index)) {
+      if (!currentLength) currentStart = index;
+      currentLength += 1;
+      if (currentLength > bestLength) {
+        bestStart = currentStart;
+        bestLength = currentLength;
+      }
+    } else currentLength = 0;
+  }
+  return tokens.slice(bestStart, bestStart + Math.min(bestLength, 36)).join(" ");
+}
+
+function screenSimilarity(content: string, sources: SimilaritySource[]) {
+  const segments = manuscriptSegments(content);
+  const sourceIndex = new Map<string, number[]>();
+  sources.forEach((source, sourceNumber) => {
+    const unique = new Set(ngrams(words(source.text.slice(0, 60_000))).map((item) => item.value));
+    for (const gram of unique) {
+      const list = sourceIndex.get(gram) ?? [];
+      if (list.length < 12) list.push(sourceNumber);
+      sourceIndex.set(gram, list);
+    }
+  });
+
+  const matches: SimilarityMatch[] = [];
+  const sectionTotals = new Map<string, { total: number; matched: number }>();
+  let totalWords = 0;
+  let matchedWords = 0;
+  for (const segment of segments) {
+    totalWords += segment.tokens.length;
+    const sectionTotal = sectionTotals.get(segment.section) ?? { total: 0, matched: 0 };
+    sectionTotal.total += segment.tokens.length;
+    const bySource = new Map<number, Set<number>>();
+    for (const gram of ngrams(segment.tokens)) {
+      for (const sourceNumber of sourceIndex.get(gram.value) ?? []) {
+        const covered = bySource.get(sourceNumber) ?? new Set<number>();
+        for (let offset = 0; offset < NGRAM_SIZE; offset += 1) covered.add(gram.start + offset);
+        bySource.set(sourceNumber, covered);
+      }
+    }
+    let bestSource = -1;
+    let bestCovered = new Set<number>();
+    for (const [sourceNumber, covered] of bySource.entries()) {
+      if (covered.size > bestCovered.size) { bestSource = sourceNumber; bestCovered = covered; }
+    }
+    const ratio = segment.tokens.length ? bestCovered.size / segment.tokens.length : 0;
+    const phrase = longestCoveredRun(bestCovered, segment.tokens);
+    const phraseWords = words(phrase).length;
+    if (bestSource < 0 || bestCovered.size < 9 || phraseWords < 9 || ratio < 0.3) {
+      sectionTotals.set(segment.section, sectionTotal);
+      continue;
+    }
+    matchedWords += bestCovered.size;
+    sectionTotal.matched += bestCovered.size;
+    sectionTotals.set(segment.section, sectionTotal);
+    const similarity = Math.round(ratio * 10_000) / 100;
+    const quotedOrCited = looksQuotedOrCited(segment.text);
+    const classification: SimilarityMatch["classification"] = quotedOrCited
+      ? "quoted_or_cited"
+      : similarity >= 85 && phraseWords >= 12
+        ? "near_verbatim"
+        : similarity >= 55
+          ? "substantial_overlap"
+          : "phrase_overlap";
+    const source = sources[bestSource];
+    matches.push({
+      section: segment.section,
+      manuscript_excerpt: truncate(segment.text, 700),
+      source_type: source.type,
+      source_title: source.title,
+      source_reference: source.reference,
+      source_excerpt: phrase,
+      similarity,
+      matched_word_count: bestCovered.size,
+      classification,
+      requires_human_review: classification !== "quoted_or_cited",
+    });
+  }
+
+  const deduplicated = [...new Map(
+    matches
+      .sort((left, right) => right.similarity - left.similarity || right.matched_word_count - left.matched_word_count)
+      .map((match) => [`${match.source_reference}|${words(match.manuscript_excerpt).slice(0, 16).join(" ")}`, match]),
+  ).values()].slice(0, 50);
+  const overall = totalWords ? Math.round((matchedWords / totalWords) * 10_000) / 100 : 0;
+  const sectionScores = [...sectionTotals.entries()].map(([name, value]) => ({
+    section: name,
+    similarity: value.total ? Math.round((value.matched / value.total) * 10_000) / 100 : 0,
+    matched_words: value.matched,
+    total_words: value.total,
+  })).sort((left, right) => right.similarity - left.similarity);
+  return { overall, totalWords, matchedWords, matches: deduplicated, sectionScores };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return ok();
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -111,18 +283,74 @@ Deno.serve(async (req) => {
   await admin.from("manuscripts").update({ status: "validating" }).eq("id", manuscript.id);
 
   const [documentsResult, papersResult] = await Promise.all([
-    supabase.from("manuscript_documents").select("filename, kind, extracted_text, extraction_status").eq("manuscript_id", manuscript.id).limit(30),
+    supabase.from("manuscript_documents").select("id, filename, kind, extracted_text, extraction_status").eq("manuscript_id", manuscript.id).limit(30),
     manuscript.research_run_id
-      ? supabase.from("papers").select("title, authors, year, doi, abstract").eq("run_id", manuscript.research_run_id).order("citation_count", { ascending: false }).limit(40)
+      ? supabase.from("papers").select("id, title, authors, year, doi, url, abstract").eq("run_id", manuscript.research_run_id).order("citation_count", { ascending: false }).limit(40)
       : Promise.resolve({ data: [], error: null }),
   ]);
 
+  const similaritySources: SimilaritySource[] = [
+    ...(papersResult.data ?? []).filter((paper: any) => String(paper.abstract ?? "").trim().length >= 100).map((paper: any) => ({
+      type: "linked_paper" as const,
+      title: String(paper.title),
+      reference: String(paper.doi || paper.url || paper.id),
+      text: String(paper.abstract),
+    })),
+    ...(documentsResult.data ?? []).filter((document: any) => ["source", "supplement"].includes(document.kind) && String(document.extracted_text ?? "").trim().length >= 100).map((document: any) => ({
+      type: "uploaded_source" as const,
+      title: String(document.filename),
+      reference: String(document.id),
+      text: String(document.extracted_text),
+    })),
+  ].slice(0, 70);
+  const similarity = screenSimilarity(content, similaritySources);
+  await admin.from("similarity_reports").delete().eq("manuscript_id", manuscript.id);
+  const highRiskMatches = similarity.matches.filter((match) => ["near_verbatim", "substantial_overlap"].includes(match.classification) && match.requires_human_review);
+  const reportStatus = highRiskMatches.length ? "review_required" : "limited_corpus";
+  const disclaimer = "This is a deterministic similarity score against linked paper abstracts and uploaded source documents only. It is not a plagiarism percentage, authorship certificate, or comprehensive comparison against proprietary publications, student-paper repositories, or the open web.";
+  const { data: similarityReport, error: similarityReportError } = await admin.from("similarity_reports").insert({
+    manuscript_id: manuscript.id,
+    content_sha256: contentHash,
+    overall_similarity: similarity.overall,
+    matched_word_count: similarity.matchedWords,
+    total_word_count: Math.max(1, similarity.totalWords),
+    match_count: similarity.matches.length,
+    section_scores: similarity.sectionScores,
+    corpus_scope: {
+      linked_paper_abstracts: similaritySources.filter((source) => source.type === "linked_paper").length,
+      uploaded_sources: similaritySources.filter((source) => source.type === "uploaded_source").length,
+      sources_compared: similaritySources.length,
+      proprietary_database_coverage: false,
+      open_web_coverage: false,
+    },
+    methodology: { algorithm: "normalized_7_word_shingle_coverage", minimum_contiguous_match_words: 9, minimum_segment_coverage_percent: 30, references_section_excluded: true },
+    disclaimer,
+    status: reportStatus,
+  }).select().single();
+  if (similarityReportError || !similarityReport) {
+    await admin.from("manuscripts").update({ status: "needs_revision" }).eq("id", manuscript.id);
+    return json({ error: "Similarity report could not be stored", detail: similarityReportError?.message }, 500);
+  }
+  let savedSimilarityMatches: any[] = [];
+  if (similarity.matches.length) {
+    const { data, error } = await admin.from("similarity_matches").insert(similarity.matches.map((match) => ({
+      report_id: similarityReport.id,
+      manuscript_id: manuscript.id,
+      ...match,
+    }))).select();
+    if (error) {
+      await admin.from("manuscripts").update({ status: "needs_revision" }).eq("id", manuscript.id);
+      return json({ error: "Similarity matches could not be stored", detail: error.message }, 500);
+    }
+    savedSimilarityMatches = data ?? [];
+  }
+
   const findings: Finding[] = [];
-  const words = content.trim().split(/\s+/).length;
-  if (words < 1000) {
-    findings.push({ category: "journal_compliance", severity: "warning", title: "Short manuscript", description: `The draft contains approximately ${words.toLocaleString()} words.`, recommendation: "Confirm the target journal's article-type word range.", evidence: { word_count: words } });
+  const manuscriptWordCount = content.trim().split(/\s+/).length;
+  if (manuscriptWordCount < 1000) {
+    findings.push({ category: "journal_compliance", severity: "warning", title: "Short manuscript", description: `The draft contains approximately ${manuscriptWordCount.toLocaleString()} words.`, recommendation: "Confirm the target journal's article-type word range.", evidence: { word_count: manuscriptWordCount } });
   } else {
-    findings.push({ category: "journal_compliance", severity: "pass", title: "Substantive draft length", description: `The draft contains approximately ${words.toLocaleString()} words.`, recommendation: "Confirm the exact journal limit before submission.", evidence: { word_count: words } });
+    findings.push({ category: "journal_compliance", severity: "pass", title: "Substantive draft length", description: `The draft contains approximately ${manuscriptWordCount.toLocaleString()} words.`, recommendation: "Confirm the exact journal limit before submission.", evidence: { word_count: manuscriptWordCount } });
   }
 
   const requiredSections = [
@@ -140,6 +368,19 @@ Deno.serve(async (req) => {
     description: missingSections.length ? `Missing: ${missingSections.join(", ")}.` : "Abstract, introduction, methods, discussion and references headings were detected.",
     recommendation: missingSections.length ? "Add each missing section or document why the selected article type does not require it." : "Compare heading order and naming with the journal's author guide.",
     evidence: { missing_sections: missingSections },
+  });
+
+  findings.push({
+    category: "originality",
+    severity: highRiskMatches.length ? "human_review" : similaritySources.length ? "info" : "human_review",
+    title: similaritySources.length ? `Source-overlap similarity: ${similarity.overall.toFixed(2)}%` : "Similarity corpus is empty",
+    description: similaritySources.length
+      ? `${similarity.matches.length} matched passage(s) were found across ${similaritySources.length} linked or uploaded source(s). This score measures text overlap in the available corpus, not plagiarism.`
+      : "No linked paper abstracts or uploaded source documents were available for deterministic overlap screening.",
+    recommendation: highRiskMatches.length
+      ? `A qualified reviewer must assess ${highRiskMatches.length} substantial or near-verbatim match(es), including quotation and citation context.`
+      : "Review any displayed matches and use an institution-approved licensed similarity database for comprehensive screening.",
+    evidence: { similarity_report_id: similarityReport.id, overall_similarity: similarity.overall, match_count: similarity.matches.length, high_risk_match_count: highRiskMatches.length, corpus_scope: similarityReport.corpus_scope },
   });
 
   if (!manuscript.target_journal) {
@@ -230,10 +471,10 @@ Deno.serve(async (req) => {
   findings.push({
     category: "originality",
     severity: "human_review",
-    title: "Independent similarity review required",
-    description: "NOVA does not certify authorship, originality, AI-detector outcomes, or plagiarism clearance.",
-    recommendation: "Use an institution-approved similarity database and have every author review the final manuscript and source trail.",
-    evidence: { automated_claim: false },
+    title: "Licensed-corpus plagiarism review required",
+    description: "NOVA's visible score covers only linked abstracts and uploaded source documents. It cannot certify originality or search proprietary publisher and student-paper repositories.",
+    recommendation: "Before submission, run the exact final manuscript through an institution-approved licensed similarity service and have a qualified reviewer assess every match in context.",
+    evidence: { automated_claim: false, local_similarity_score: similarity.overall, proprietary_database_coverage: false },
   });
 
   const rows = findings.map((finding) => ({
@@ -278,11 +519,13 @@ Deno.serve(async (req) => {
       readiness,
       validation_completed_at: readiness.validated_at,
       last_validated_sha256: contentHash,
+      similarity_score: similarity.overall,
+      similarity_screened_at: readiness.validated_at,
     })
     .eq("id", manuscript.id)
     .select()
     .single();
   if (saveError) return json({ error: saveError.message }, 500);
 
-  return json({ manuscript: savedManuscript, findings: savedFindings ?? [], readiness, doi_checks: doiChecks });
+  return json({ manuscript: savedManuscript, findings: savedFindings ?? [], readiness, doi_checks: doiChecks, similarity_report: similarityReport, similarity_matches: savedSimilarityMatches });
 });
