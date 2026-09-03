@@ -576,14 +576,25 @@ The validator compares manuscript prose against:
 
 ### Important scientific limitation
 
-The score is **not a definitive plagiarism percentage**. NOVA does not currently search:
+The local score is **not a definitive plagiarism percentage**. NOVA also offers a separate, optional PlagAware external web-corpus scan for the exact saved manuscript version. The external flow:
+
+- requires explicit user consent before manuscript text leaves NOVA;
+- removes References/Bibliography/Works Cited from submitted screening text;
+- keeps the provider credential in a Supabase Edge secret;
+- records provider status, similarity percentage, matched and total words, ScanCredits, sources, report links, timestamps, and manuscript SHA-256;
+- reuses an existing scan for an unchanged manuscript hash to prevent duplicate credit consumption;
+- keeps PlagAware and NOVA percentages separate because their corpora and methods differ;
+- exposes provider-reported sources and links to the detailed hosted HTML/PDF report;
+- requires contextual human review for every reported match.
+
+Neither score searches or proves coverage of:
 
 - proprietary publisher similarity indexes;
 - private student-paper repositories;
 - every webpage on the open internet;
 - licensed institutional databases such as Turnitin or iThenticate.
 
-For a final publication, the exact final manuscript should still be checked through an institution-approved licensed similarity service, and every match should be interpreted by a qualified human reviewer.
+For a final publication, every local and external match must be interpreted by a qualified human reviewer. An institution-approved service should still be used when required by the target institution or journal.
 
 ---
 
@@ -927,10 +938,20 @@ The production Supabase test additionally verified:
 - Professional Agent Edge Function
 - Writing Assistant Edge Function
 - Paper Validator and similarity-screening backend
+- PlagAware external web-similarity schema, RLS, Edge Function, consent flow, version binding, and UI
 - Open Research enrichment and global grant backend
 - Journal-profile, citation-library, and manuscript-comment schema
 - OpenAI secret integration through Supabase
 - OpenAlex and Unpaywall secret integration through Supabase
+- PlagAware user code stored as a protected Supabase Edge secret
+
+### PlagAware provider activation status
+
+- The supplied PlagAware user code was accepted by the provider endpoint.
+- A non-billable dry-run reached PlagAware successfully.
+- PlagAware returned `Not enough Scan Credits`; therefore a real completed provider report could not yet be produced.
+- NOVA surfaces this as an actionable account-credit message while its local open-research similarity screening remains available.
+- Claiming PlagAware's introductory free-page allowance or adding ScanCredits is the only remaining provider-account step.
 
 ### Ready for Vercel deployment
 
@@ -940,11 +961,10 @@ The production Supabase test additionally verified:
 
 ### Still required for the Vercel launch
 
-1. Push the repository to GitHub or another supported Git provider.
-2. Import the repository into Vercel. `vercel.json` already defines the Vite build, `dist` output, SPA fallback, cache, and baseline security headers.
-3. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from `.env.example`.
-4. Add the final Vercel URL to Supabase Auth URL Configuration.
-5. Test email confirmation, direct-route refresh, research run, open-access enrichment, Writing Studio, and similarity report on the production domain.
+1. Import the GitHub repository into Vercel. `vercel.json` already defines the Vite build, `dist` output, SPA fallback, cache, and baseline security headers.
+2. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from `.env.example`.
+3. Add the final Vercel URL to Supabase Auth URL Configuration.
+4. Test email confirmation, direct-route refresh, research run, open-access enrichment, Writing Studio, and both similarity reports on the production domain.
 
 The browser URL `localhost:5173/**` is not valid for opening the application. `/**` is an allow-list wildcard used only inside Supabase Redirect URLs. Local use should open `http://localhost:5173/` while `npm run dev` is actively running.
 

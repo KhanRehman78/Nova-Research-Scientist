@@ -366,7 +366,7 @@ Deno.serve(async (req) => {
   const contentHash = await sha256(content);
   await admin.from("manuscripts").update({ status: "validating" }).eq("id", manuscript.id);
 
-  const [documentsResult, papersResult, fullTextsResult, journalProfileResult] = await Promise.all([
+  const [documentsResult, papersResult, fullTextsResult, journalProfileResult, externalScanResult] = await Promise.all([
     supabase.from("manuscript_documents").select("id, filename, kind, extracted_text, extraction_status").eq("manuscript_id", manuscript.id).limit(30),
     manuscript.research_run_id
       ? admin.from("papers").select("id, title, authors, year, doi, url, abstract, full_text_url, full_text_license").eq("run_id", manuscript.research_run_id).order("citation_count", { ascending: false }).limit(70)
@@ -375,6 +375,7 @@ Deno.serve(async (req) => {
       ? admin.from("paper_fulltexts").select("paper_id, source, source_url, license, content").eq("run_id", manuscript.research_run_id).eq("retrieval_status", "available").limit(70)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("journal_profiles").select("id,journal_name,rules,evidence,status,updated_at").eq("manuscript_id", manuscript.id).maybeSingle(),
+    supabase.from("external_similarity_scans").select("*").eq("manuscript_id", manuscript.id).eq("content_sha256", contentHash).order("requested_at", { ascending: false }).limit(1),
   ]);
 
   const fullTextByPaper = new Map((fullTextsResult.data ?? []).map((item: any) => [item.paper_id, item]));
@@ -582,14 +583,26 @@ Deno.serve(async (req) => {
     });
   }
 
-  findings.push({
-    category: "originality",
-    severity: "human_review",
-    title: "Licensed-corpus plagiarism review required",
-    description: `NOVA's visible score covers ${fullTextSourceCount} legally retrieved open full-text paper(s), ${abstractSourceCount} linked abstract(s), and uploaded sources. It cannot certify originality or search proprietary publisher and student-paper repositories.`,
-    recommendation: "Before submission, run the exact final manuscript through an institution-approved licensed similarity service and have a qualified reviewer assess every match in context.",
-    evidence: { automated_claim: false, local_similarity_score: similarity.overall, proprietary_database_coverage: false },
-  });
+  const externalScan = externalScanResult.data?.[0] ?? null;
+  if (externalScan?.status === "completed") {
+    findings.push({
+      category: "originality",
+      severity: "human_review",
+      title: `External web similarity requires contextual review: ${Number(externalScan.overall_similarity ?? 0).toFixed(2)}%`,
+      description: `PlagAware screened this exact manuscript version and reported ${externalScan.sources?.length ?? 0} matching source(s). This external score measures overlap in the provider corpus; it does not prove plagiarism or cover every proprietary publication and student-paper repository.`,
+      recommendation: "Open the detailed provider report, assess quotation and citation context for every source, document corrective edits, and obtain qualified human review before submission.",
+      evidence: { external_similarity_scan_id: externalScan.id, provider: externalScan.provider, external_similarity: externalScan.overall_similarity, sources: externalScan.sources?.length ?? 0, local_similarity_score: similarity.overall, proprietary_database_coverage: false },
+    });
+  } else {
+    findings.push({
+      category: "originality",
+      severity: "human_review",
+      title: externalScan ? "External web similarity scan is still processing" : "External web similarity scan not completed",
+      description: `NOVA's local score covers ${fullTextSourceCount} legally retrieved open full-text paper(s), ${abstractSourceCount} linked abstract(s), and uploaded sources. No completed PlagAware result is attached to this exact manuscript version.`,
+      recommendation: externalScan ? "Refresh the PlagAware result, then rerun validation for the exact saved manuscript version." : "Run the optional PlagAware web scan, review its report, and rerun validation before finalization.",
+      evidence: { external_similarity_scan_id: externalScan?.id ?? null, external_status: externalScan?.status ?? "not_started", local_similarity_score: similarity.overall, proprietary_database_coverage: false },
+    });
+  }
 
   const rows = findings.map((finding) => ({
     manuscript_id: manuscript.id,

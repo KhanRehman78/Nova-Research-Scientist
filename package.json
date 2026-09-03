@@ -10,7 +10,8 @@
     "test:professional": "node scripts/professional-smoke-test.mjs",
     "test:professional:live": "node scripts/run-professional-live-test.mjs",
     "test:writing:live": "node scripts/run-writing-live-test.mjs",
-    "test:open-research:live": "node scripts/run-open-research-live-test.mjs"
+    "test:open-research:live": "node scripts/run-open-research-live-test.mjs",
+    "test:external-similarity:live": "node scripts/external-similarity-smoke-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",

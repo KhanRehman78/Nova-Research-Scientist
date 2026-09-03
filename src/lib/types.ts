@@ -257,6 +257,38 @@ export interface SimilarityMatch {
   created_at: string;
 }
 
+export interface ExternalSimilaritySource {
+  rank: number;
+  title: string;
+  url: string | null;
+  similarity: number | null;
+  matched_words: number | null;
+}
+
+export interface ExternalSimilarityScan {
+  id: string;
+  manuscript_id: string;
+  requested_by: string | null;
+  provider: "plagaware";
+  content_sha256: string;
+  provider_report_id: string;
+  status: "scheduled" | "active" | "completed" | "error";
+  overall_similarity: number | null;
+  total_words: number | null;
+  matched_words: number | null;
+  credits_used: number | null;
+  sources: ExternalSimilaritySource[];
+  report_html_url: string | null;
+  report_pdf_url: string | null;
+  provider_metadata: Record<string, unknown>;
+  error_message: string | null;
+  disclaimer: string;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+}
+
 export interface ManuscriptVersion {
   id: string;
   manuscript_id: string;
