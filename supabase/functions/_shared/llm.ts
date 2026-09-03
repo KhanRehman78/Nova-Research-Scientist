@@ -18,14 +18,18 @@ export async function llmJson(opts: {
   schema: Record<string, unknown>;
   model?: string;
   temperature?: number;
+  maxOutputTokens?: number;
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
 }): Promise<any> {
   const client = openaiClient();
   const model = opts.model ??
     Deno.env.get("OPENAI_MODEL") ??
     "gpt-5.6-luna";
 
+  const configuredAttempts = Number(Deno.env.get("OPENAI_LLM_ATTEMPTS") ?? "1");
+  const attempts = Number.isFinite(configuredAttempts) ? Math.min(2, Math.max(1, Math.trunc(configuredAttempts))) : 1;
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const request: Record<string, unknown> = {
         model,
@@ -41,12 +45,17 @@ export async function llmJson(opts: {
             schema: opts.schema,
           },
         },
+        max_completion_tokens: opts.maxOutputTokens ?? 4_000,
       };
 
       // GPT-5-family reasoning models currently accept only their default
       // temperature. Keep custom sampling for older models that support it.
       if (!/^gpt-5(?:\.|-|$)/i.test(model)) {
         request.temperature = opts.temperature ?? 0.3;
+      } else {
+        request.reasoning_effort = opts.reasoningEffort ??
+          (Deno.env.get("OPENAI_REASONING_EFFORT") as "minimal" | "low" | "medium" | "high" | undefined) ??
+          "low";
       }
 
       const completion = await client.chat.completions.create(request as any);
@@ -61,7 +70,7 @@ export async function llmJson(opts: {
       }
     } catch (error) {
       lastError = error;
-      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 800));
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 800));
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));

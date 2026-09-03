@@ -3,7 +3,7 @@
 **Product name:** NOVA  
 **Positioning:** Autonomous Intelligence Research Engine  
 **Document purpose:** Product functionality reference and source material for a professional investor, university, research-lab, or stakeholder pitch deck  
-**Implementation status date:** 2 September 2026
+**Implementation status date:** 3 September 2026
 
 ---
 
@@ -20,7 +20,7 @@ The product combines:
 - professional student and professor workflows;
 - academic writing, grammar, clarity, and author-voice guidance;
 - manuscript validation and submission-readiness controls;
-- open-full-text and local-source similarity screening with exact matched passages;
+- first-party similarity screening across authorized NOVA manuscripts, open full text, and uploaded sources, with exact matched passages;
 - citation-library, bibliography, journal-rule, and passage-comment workflows;
 - live public grant discovery and global funder discovery;
 - project collaboration, supervision records, and lab analytics;
@@ -94,6 +94,7 @@ Supabase Auth, Postgres, Realtime and Private Storage
 NOVA Research, Writing, Validation and Professional Agents
             |
             +--> OpenAI structured-output model
+            +--> NOVA first-party similarity corpus
             +--> arXiv
             +--> Semantic Scholar
             +--> PubMed
@@ -117,7 +118,9 @@ NOVA Research, Writing, Validation and Professional Agents
 | Authorization | Postgres Row Level Security and protected RPC functions |
 | Backend logic | Supabase Edge Functions |
 | Live status | Supabase Realtime task updates |
-| AI | OpenAI structured JSON outputs; default model is `gpt-5.6-luna`, configurable with `OPENAI_MODEL` |
+| AI | OpenAI structured JSON outputs; default model is the cost-efficient `gpt-5.6-luna`, configurable with `OPENAI_MODEL` |
+| AI cost controls | Exact-input response cache, saved-result reuse, balanced context windows, bounded output tokens, low reasoning effort, and one application-level attempt by default |
+| Originality engine | NOVA-owned privacy-scoped corpus, sampled seven-word fingerprints, deterministic passage matching, and reviewer verdicts |
 | Academic sources | arXiv, Semantic Scholar, PubMed, OpenAlex, Unpaywall, Europe PMC, Crossref |
 | Funding sources | Live Grants.gov opportunities, OpenAlex global funder profiles, official regional portal links |
 | Planned web hosting | Vercel frontend with Supabase backend |
@@ -514,7 +517,7 @@ Results are classified as:
 - Blocking
 - Human review required
 
-The interface provides both **Deterministic checks** and **Full validation**. Deterministic mode remains usable before OpenAI credits are added; full mode adds the structured AI-assisted academic review. OpenAI calls have a bounded server timeout so an unavailable provider cannot hold the workflow indefinitely.
+The interface provides both **Free deterministic checks** and **Full validation**. Deterministic mode does not call OpenAI and remains usable before credits are added. Full mode adds a structured AI-assisted academic review. Repeated validation of the same manuscript and evidence context reuses a server-side cached review instead of spending tokens again. New calls use a balanced manuscript/evidence context, bounded output, low reasoning effort, one application-level attempt by default, and a server timeout.
 
 ### 9.4 Six readiness gates
 
@@ -531,16 +534,19 @@ Automated passes mean that no issue was detected in that limited check. They do 
 
 ## 10. Similarity and Source-Overlap Screening
 
-NOVA implements an auditable local-corpus similarity report rather than presenting an unsupported “plagiarism verdict.”
+NOVA implements an auditable first-party similarity report rather than presenting an unsupported “plagiarism verdict.” The core report does not require a paid similarity-provider API.
 
 ### Comparison corpus
 
 The validator compares manuscript prose against:
 
+- authorized NOVA manuscript records in the first-party corpus;
 - legally retrieved open full text from papers in the linked research run;
 - remaining abstracts where full text was not lawfully retrievable;
 - uploaded source documents;
 - uploaded supplementary documents.
+
+Every manuscript defaults to **Private / project only**. Its owner can explicitly opt it into the anonymized shared NOVA corpus, exclude it completely, or opt out later. Shared-corpus matches do not reveal another user's manuscript title or full text. Opt-out removes the corpus document and its fingerprints.
 
 ### Implemented algorithm
 
@@ -548,7 +554,9 @@ The validator compares manuscript prose against:
 - seven-word shingles;
 - minimum nine contiguous shared words;
 - minimum 30% coverage of a screened passage;
+- sampled content-defined fingerprints for scalable first-party candidate retrieval;
 - References, Bibliography, and Works Cited sections excluded from the score;
+- up to 150 authorized sources considered by the exact deterministic comparison;
 - up to 50 highest-priority de-duplicated matches returned;
 - report tied to the exact manuscript SHA-256 hash.
 
@@ -559,6 +567,7 @@ The validator compares manuscript prose against:
 - total screened-word count;
 - number of compared sources;
 - count of full-text versus abstract-only linked sources;
+- count of matched NOVA-corpus manuscripts;
 - section-by-section similarity percentage;
 - exact matched manuscript passage;
 - matched source title and reference;
@@ -566,6 +575,8 @@ The validator compares manuscript prose against:
 - passage-level match strength;
 - matched contiguous-word count;
 - human-review requirement.
+
+Reviewers can attach one of four stored verdicts to an individual match: **Confirmed overlap**, **Needs citation**, **Acceptable reuse**, or **False positive**. Each verdict is protected by Row Level Security and remains separate from the machine-computed evidence.
 
 ### Match classifications
 
@@ -576,7 +587,7 @@ The validator compares manuscript prose against:
 
 ### Important scientific limitation
 
-The local score is **not a definitive plagiarism percentage**. NOVA also offers a separate, optional PlagAware external web-corpus scan for the exact saved manuscript version. The external flow:
+The NOVA score is **not a definitive plagiarism percentage** because no lawful private product has universal access to every publisher archive, student-paper repository, or webpage. The built-in flow is fully operational without PlagAware. A separate PlagAware connector remains available only as an optional, default-disabled external scan for customers who later choose to fund it. If enabled, the external flow:
 
 - requires explicit user consent before manuscript text leaves NOVA;
 - removes References/Bibliography/Works Cited from submitted screening text;
@@ -587,7 +598,7 @@ The local score is **not a definitive plagiarism percentage**. NOVA also offers 
 - exposes provider-reported sources and links to the detailed hosted HTML/PDF report;
 - requires contextual human review for every reported match.
 
-Neither score searches or proves coverage of:
+The built-in score does not search or prove coverage of:
 
 - proprietary publisher similarity indexes;
 - private student-paper repositories;
@@ -851,6 +862,9 @@ Evidence-quality labels are:
 - Client-side prompt text treated as untrusted data by agent instructions
 - Strict JSON schemas for AI outputs
 - Input size limits and response validation
+- Service-only access to similarity fingerprints, corpus full text, and the AI response cache
+- Private-by-default manuscript corpus scope with explicit shared-corpus consent and reversible opt-out
+- Exact-input AI response caching without storing API credentials in the browser
 
 ### Credential rule
 
@@ -912,6 +926,22 @@ The live test verified:
 
 The controlled similarity fixture produced a 10.43% local-corpus score and localized the known overlap to the Introduction. This number is a test-fixture result, not a general product accuracy claim.
 
+### First-party similarity and AI-cost-control live test
+
+The production test additionally verified:
+
+- private-by-default manuscript indexing;
+- an exact known overlap found in another authorized NOVA manuscript;
+- a stored match-review verdict;
+- explicit shared-corpus consent with a consent timestamp;
+- database-level rejection when a project collaborator attempts to change the owner's corpus consent;
+- complete corpus and fingerprint removal after opt-out;
+- deterministic validation without an OpenAI call;
+- `external_paid_api_required: false` in the generated methodology;
+- reuse of a cached writing analysis on repeated identical input, without consuming OpenAI credits.
+
+The controlled first-party fixture produced a 19.85% similarity score with one NOVA-corpus match. This is a reproducible test-fixture result, not a universal accuracy guarantee.
+
 ### Global open-research live test
 
 The production Supabase test additionally verified:
@@ -937,21 +967,24 @@ The production Supabase test additionally verified:
 - Research Edge Functions
 - Professional Agent Edge Function
 - Writing Assistant Edge Function
-- Paper Validator and similarity-screening backend
-- PlagAware external web-similarity schema, RLS, Edge Function, consent flow, version binding, and UI
+- Paper Validator and first-party similarity-screening backend
+- Privacy-scoped NOVA corpus, sampled fingerprints, reviewer feedback, RLS, explicit sharing consent, and reversible opt-out
+- Cost-aware writing and validation caches with bounded OpenAI request settings
+- Optional PlagAware external web-similarity schema, RLS, Edge Function, consent flow, version binding, and UI; disabled by default
 - Open Research enrichment and global grant backend
 - Journal-profile, citation-library, and manuscript-comment schema
 - OpenAI secret integration through Supabase
 - OpenAlex and Unpaywall secret integration through Supabase
 - PlagAware user code stored as a protected Supabase Edge secret
 
-### PlagAware provider activation status
+### Optional PlagAware provider status
 
 - The supplied PlagAware user code was accepted by the provider endpoint.
 - A non-billable dry-run reached PlagAware successfully.
 - PlagAware returned `Not enough Scan Credits`; therefore a real completed provider report could not yet be produced.
-- NOVA surfaces this as an actionable account-credit message while its local open-research similarity screening remains available.
-- Claiming PlagAware's introductory free-page allowance or adding ScanCredits is the only remaining provider-account step.
+- NOVA's first-party similarity workflow is independent of this provider and remains fully available.
+- The external connector is disabled by default, so it cannot consume provider credits accidentally.
+- Claiming an allowance or adding ScanCredits is necessary only if an operator deliberately enables this optional connector.
 
 ### Ready for Vercel deployment
 

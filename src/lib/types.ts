@@ -154,6 +154,7 @@ export interface SearchSummary {
 }
 
 export type WritingMode = "human_authored" | "ai_assisted";
+export type CorpusScope = "private" | "shared_opt_in" | "excluded";
 export type ManuscriptStatus = "draft" | "validating" | "needs_revision" | "submission_ready";
 export type ManuscriptEditSource = "human" | "imported" | "ai_generated" | "ai_assisted";
 export type SuggestionCategory = "grammar" | "clarity" | "academic_tone" | "author_voice" | "structure" | "citation" | "integrity";
@@ -186,6 +187,9 @@ export interface Manuscript {
   article_type: string;
   citation_style: string;
   writing_mode: WritingMode;
+  corpus_scope: CorpusScope;
+  shared_corpus_consent_at: string | null;
+  shared_corpus_consent_version: string | null;
   status: ManuscriptStatus;
   content: string;
   abstract: string;
@@ -229,6 +233,8 @@ export interface SimilarityReport {
     linked_paper_fulltexts?: number;
     linked_paper_abstracts?: number;
     uploaded_sources?: number;
+    nova_private_documents?: number;
+    nova_shared_documents?: number;
     sources_compared?: number;
     proprietary_database_coverage?: boolean;
     open_access_fulltext_coverage?: boolean;
@@ -246,7 +252,7 @@ export interface SimilarityMatch {
   manuscript_id: string;
   section: string;
   manuscript_excerpt: string;
-  source_type: "linked_paper" | "uploaded_source";
+  source_type: "linked_paper" | "uploaded_source" | "nova_corpus";
   source_title: string;
   source_reference: string | null;
   source_excerpt: string;
@@ -255,6 +261,17 @@ export interface SimilarityMatch {
   classification: "quoted_or_cited" | "near_verbatim" | "substantial_overlap" | "phrase_overlap";
   requires_human_review: boolean;
   created_at: string;
+}
+
+export interface SimilarityMatchFeedback {
+  id: string;
+  match_id: string;
+  manuscript_id: string;
+  reviewer_id: string;
+  verdict: "confirmed_overlap" | "false_positive" | "acceptable_reuse" | "needs_citation";
+  note: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ExternalSimilaritySource {

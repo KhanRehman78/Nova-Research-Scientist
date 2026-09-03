@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArchiveRestore,
   BadgeCheck,
@@ -48,6 +48,7 @@ import {
 } from "../lib/documentFiles";
 import type {
   AuthorSignoff,
+  CorpusScope,
   ExternalSimilarityScan,
   JournalProfile,
   Manuscript,
@@ -59,6 +60,7 @@ import type {
   PaperFullText,
   ResearchRun,
   SimilarityMatch,
+  SimilarityMatchFeedback,
   SimilarityReport,
   ValidationFinding,
   WritingMode,
@@ -69,9 +71,10 @@ import { Button, Chip, EmptyState, ErrorBanner, PageHeader, Spinner } from "../c
 
 type Tab = "write" | "sources" | "validate" | "submission";
 type ProjectOption = { id: string; name: string };
-type BusyAction = "create" | "save" | "analyze" | "draft" | "validate" | "external-scan" | "external-status" | "upload" | "signoff" | "finalize" | "export" | "enrich" | "journal" | "citation" | "comment" | null;
+type BusyAction = "create" | "save" | "analyze" | "draft" | "validate" | "external-scan" | "external-status" | "corpus" | "feedback" | "upload" | "signoff" | "finalize" | "export" | "enrich" | "journal" | "citation" | "comment" | null;
 
 const FIELD_CLASS = "w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:border-primary focus:outline-2 focus:outline-primary/40";
+const ENABLE_EXTERNAL_PROVIDER = import.meta.env.VITE_ENABLE_EXTERNAL_SIMILARITY === "true";
 const TABS: { key: Tab; label: string; icon: typeof PenLine }[] = [
   { key: "write", label: "Write", icon: PenLine },
   { key: "sources", label: "Sources", icon: Library },
@@ -123,6 +126,7 @@ export function WritingStudio() {
   const [signoffs, setSignoffs] = useState<AuthorSignoff[]>([]);
   const [similarityReport, setSimilarityReport] = useState<SimilarityReport | null>(null);
   const [similarityMatches, setSimilarityMatches] = useState<SimilarityMatch[]>([]);
+  const [matchFeedback, setMatchFeedback] = useState<SimilarityMatchFeedback[]>([]);
   const [externalScan, setExternalScan] = useState<ExternalSimilarityScan | null>(null);
   const [externalConsent, setExternalConsent] = useState(false);
   const [linkedPapers, setLinkedPapers] = useState<Paper[]>([]);
@@ -198,14 +202,14 @@ export function WritingStudio() {
   useEffect(() => {
     if (!manuscript?.id) {
       setSuggestions([]); setFindings([]); setDocuments([]); setVersions([]); setSignoffs([]);
-      setSimilarityReport(null); setSimilarityMatches([]); setExternalScan(null); setExternalConsent(false);
+      setSimilarityReport(null); setSimilarityMatches([]); setMatchFeedback([]); setExternalScan(null); setExternalConsent(false);
       setLinkedPapers([]); setFullTexts([]); setJournalProfile(null); setCitations([]); setComments([]);
       return;
     }
     let cancelled = false;
     const manuscriptId = manuscript.id;
     (async () => {
-      const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows, externalScanRows, journalRow, citationRows, commentRows, paperRows, fullTextRows] = await Promise.all([
+      const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows, feedbackRows, externalScanRows, journalRow, citationRows, commentRows, paperRows, fullTextRows] = await Promise.all([
         supabase.from("writing_suggestions").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("validation_findings").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("manuscript_documents").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
@@ -213,6 +217,7 @@ export function WritingStudio() {
         supabase.from("author_signoffs").select("*").eq("manuscript_id", manuscriptId),
         supabase.from("similarity_reports").select("*").eq("manuscript_id", manuscriptId).maybeSingle(),
         supabase.from("similarity_matches").select("*").eq("manuscript_id", manuscriptId).order("similarity", { ascending: false }),
+        supabase.from("similarity_match_feedback").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
         supabase.from("external_similarity_scans").select("*").eq("manuscript_id", manuscriptId).order("requested_at", { ascending: false }).limit(1),
         supabase.from("journal_profiles").select("*").eq("manuscript_id", manuscriptId).maybeSingle(),
         supabase.from("manuscript_citations").select("*").eq("manuscript_id", manuscriptId).order("created_at"),
@@ -228,6 +233,7 @@ export function WritingStudio() {
       setSignoffs((signoffRows.data ?? []) as AuthorSignoff[]);
       setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
       setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
+      setMatchFeedback((feedbackRows.data ?? []) as SimilarityMatchFeedback[]);
       setExternalScan(((externalScanRows.data ?? [])[0] ?? null) as ExternalSimilarityScan | null);
       setJournalProfile((journalRow.data ?? null) as JournalProfile | null);
       setCitations((citationRows.data ?? []) as ManuscriptCitation[]);
@@ -262,7 +268,7 @@ export function WritingStudio() {
   };
 
   const refreshAssets = async (id: string) => {
-    const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows, externalScanRows, journalRow, citationRows, commentRows, paperRows, fullTextRows] = await Promise.all([
+    const [suggestionRows, findingRows, documentRows, versionRows, signoffRows, similarityReportRow, similarityMatchRows, feedbackRows, externalScanRows, journalRow, citationRows, commentRows, paperRows, fullTextRows] = await Promise.all([
       supabase.from("writing_suggestions").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("validation_findings").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("manuscript_documents").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
@@ -270,6 +276,7 @@ export function WritingStudio() {
       supabase.from("author_signoffs").select("*").eq("manuscript_id", id),
       supabase.from("similarity_reports").select("*").eq("manuscript_id", id).maybeSingle(),
       supabase.from("similarity_matches").select("*").eq("manuscript_id", id).order("similarity", { ascending: false }),
+      supabase.from("similarity_match_feedback").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
       supabase.from("external_similarity_scans").select("*").eq("manuscript_id", id).order("requested_at", { ascending: false }).limit(1),
       supabase.from("journal_profiles").select("*").eq("manuscript_id", id).maybeSingle(),
       supabase.from("manuscript_citations").select("*").eq("manuscript_id", id).order("created_at"),
@@ -284,6 +291,7 @@ export function WritingStudio() {
     setSignoffs((signoffRows.data ?? []) as AuthorSignoff[]);
     setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
     setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
+    setMatchFeedback((feedbackRows.data ?? []) as SimilarityMatchFeedback[]);
     setExternalScan(((externalScanRows.data ?? [])[0] ?? null) as ExternalSimilarityScan | null);
     setJournalProfile((journalRow.data ?? null) as JournalProfile | null);
     setCitations((citationRows.data ?? []) as ManuscriptCitation[]);
@@ -554,8 +562,9 @@ export function WritingStudio() {
       setFindings((data.findings ?? []) as ValidationFinding[]);
       setSimilarityReport((data.similarity_report ?? null) as SimilarityReport | null);
       setSimilarityMatches((data.similarity_matches ?? []) as SimilarityMatch[]);
+      setMatchFeedback([]);
       setTab("validate");
-      setNotice(`${deterministicOnly ? "Deterministic" : "Full"} validation and source-overlap screening complete. Review every match and resolve all human-review items before finalization.`);
+      setNotice(`${deterministicOnly ? "Deterministic" : "Full"} validation and NOVA first-party similarity screening complete.${data.ai_review_cache_hit ? " The previous AI review was safely reused, so no new OpenAI credits were consumed." : ""} Review every match and resolve all human-review items before finalization.`);
     }
     setBusy(null);
   };
@@ -585,6 +594,45 @@ export function WritingStudio() {
     else {
       setExternalScan(data.scan as ExternalSimilarityScan);
       setNotice(data.scan.status === "completed" ? "PlagAware web similarity report is ready. Review every source in context." : `PlagAware scan status: ${labelize(data.scan.status)}.`);
+    }
+    setBusy(null);
+  };
+
+  const changeCorpusScope = async (scope: CorpusScope) => {
+    if (!manuscript || !user || manuscript.owner_id !== user.id || busy) return;
+    setBusy("corpus"); setError(null); setNotice(null);
+    const { data, error: scopeError } = await supabase.rpc("set_manuscript_corpus_scope", {
+      p_manuscript_id: manuscript.id,
+      p_scope: scope,
+    });
+    if (scopeError) setError(scopeError.message);
+    else {
+      const saved = data as Manuscript;
+      setManuscript(saved);
+      setManuscripts((items) => items.map((item) => item.id === saved.id ? saved : item));
+      setNotice(scope === "shared_opt_in"
+        ? "Shared-corpus opt-in recorded. Other NOVA users may receive anonymized passage matches against this manuscript; ownership and full text remain protected."
+        : scope === "excluded"
+          ? "This manuscript was removed from NOVA's comparison corpus, including its derived fingerprints."
+          : "This manuscript is indexed only for your private/project similarity checks.");
+    }
+    setBusy(null);
+  };
+
+  const setMatchVerdict = async (match: SimilarityMatch, verdict: SimilarityMatchFeedback["verdict"]) => {
+    if (!manuscript || !user || busy) return;
+    setBusy("feedback"); setError(null); setNotice(null);
+    const { data, error: feedbackError } = await supabase.from("similarity_match_feedback").upsert({
+      match_id: match.id,
+      manuscript_id: manuscript.id,
+      reviewer_id: user.id,
+      verdict,
+    }, { onConflict: "match_id,reviewer_id" }).select().single();
+    if (feedbackError) setError(feedbackError.message);
+    else {
+      const saved = data as SimilarityMatchFeedback;
+      setMatchFeedback((items) => [saved, ...items.filter((item) => item.id !== saved.id && item.match_id !== saved.match_id)]);
+      setNotice("Your review decision was saved as auditable quality feedback for NOVA's matching engine.");
     }
     setBusy(null);
   };
@@ -804,6 +852,25 @@ export function WritingStudio() {
                     </div>
                   </section>
 
+                  <section className="glass-panel rounded-3xl p-5 sm:p-6" aria-labelledby="corpus-participation-heading">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h2 id="corpus-participation-heading" className="font-heading text-xl text-foreground">NOVA corpus participation</h2>
+                        <p className="mt-1 max-w-3xl text-xs leading-relaxed text-foreground/50">Controls first-party similarity indexing. Private is the safe default; no PlagAware, Turnitin or other paid plagiarism API is required.</p>
+                      </div>
+                      <Chip tone={manuscript.corpus_scope === "shared_opt_in" ? "violet" : manuscript.corpus_scope === "excluded" ? "warning" : "success"}>{labelize(manuscript.corpus_scope ?? "private")}</Chip>
+                    </div>
+                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                      {([
+                        { key: "private", title: "Private/project corpus", body: "Indexed for checks available to you and authorized collaborators in this project." },
+                        { key: "excluded", title: "Do not index", body: "Remove the manuscript and its derived fingerprints from NOVA's comparison corpus." },
+                        { key: "shared_opt_in", title: "Shared corpus opt-in", body: "Allow anonymized passage matching for other NOVA users. Full text is never exposed through the browser." },
+                      ] as { key: CorpusScope; title: string; body: string }[]).map((option) => <button key={option.key} type="button" onClick={() => void changeCorpusScope(option.key)} disabled={Boolean(busy) || manuscript.owner_id !== user?.id} className={`cursor-pointer rounded-2xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${manuscript.corpus_scope === option.key ? "border-primary bg-primary/10" : "border-border bg-panel hover:border-primary/40"}`}><div className="font-medium text-foreground">{option.title}</div><div className="mt-1 text-xs leading-relaxed text-foreground/55">{option.body}</div></button>)}
+                    </div>
+                    {manuscript.owner_id !== user?.id ? <p className="mt-3 text-xs text-warning">Only the manuscript owner can change corpus participation.</p> : null}
+                    {manuscript.shared_corpus_consent_at ? <p className="mt-3 text-xs text-foreground/45">Shared-corpus consent recorded {formatDate(manuscript.shared_corpus_consent_at)}. You can opt out at any time.</p> : null}
+                  </section>
+
                   <section className="glass-panel rounded-3xl p-5 sm:p-6">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                       <div><h2 className="font-heading text-xl text-foreground">Manuscript editor</h2><p className="text-xs text-foreground/50">Markdown headings are supported and preserved in DOCX, PDF and LaTeX exports.</p></div>
@@ -872,15 +939,15 @@ export function WritingStudio() {
               {tab === "validate" ? (
                 <div className="space-y-5">
                   <section className="glass-panel rounded-3xl p-5 sm:p-6">
-                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Evidence & submission validation</h2><p className="mt-1 max-w-3xl text-sm text-foreground/55">Checks structure, language, methodology, statistics, ethics, provenance, extracted journal rules and deterministic text overlap against available open full text, remaining abstracts and uploaded documents. DOI records are verified through Crossref and OpenAlex, including retraction flags.</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => void validateManuscript(true)} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ScanSearch size={15} />}Deterministic checks</Button><Button onClick={() => void validateManuscript(false)} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ShieldCheck size={15} />}{dirty ? "Save before validating" : "Run full validation"}</Button></div></div>
-                    <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-warning">Automated review is decision support, not peer review, legal/ethics approval or a guarantee of acceptance. Open-access full-text coverage improves the local score, but it is still not a plagiarism verdict or proprietary licensed-corpus clearance.</div>
+                    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-heading text-2xl text-foreground">Evidence & submission validation</h2><p className="mt-1 max-w-3xl text-sm text-foreground/55">Checks structure, language, methodology, statistics, ethics, provenance, journal rules and deterministic overlap against NOVA's private/shared corpus, open full text, abstracts and uploaded sources. Repeated AI reviews of unchanged evidence are cached to protect OpenAI credits.</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => void validateManuscript(true)} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ScanSearch size={15} />}Free deterministic checks</Button><Button onClick={() => void validateManuscript(false)} disabled={Boolean(busy) || dirty || manuscript.content.trim().length < 500}>{busy === "validate" ? <Spinner size={15} /> : <ShieldCheck size={15} />}{dirty ? "Save before validating" : "Run full validation"}</Button></div></div>
+                    <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-warning">NOVA's first-party similarity scan consumes no OpenAI credits and requires no paid plagiarism API. Automated review remains decision support—not a plagiarism verdict, peer review, legal/ethics approval or acceptance guarantee.</div>
                   </section>
                   {currentSimilarityReport ? (
                     <section className="glass-panel rounded-3xl p-5 sm:p-6" aria-labelledby="similarity-heading">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div className="flex items-start gap-3">
                           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><ScanSearch size={21} /></div>
-                          <div><h3 id="similarity-heading" className="font-heading text-xl text-foreground">Source-overlap report</h3><p className="mt-1 max-w-2xl text-sm text-foreground/55">Auditable passage matching for the exact saved manuscript version. References and bibliography are excluded from the score.</p></div>
+                          <div><h3 id="similarity-heading" className="font-heading text-xl text-foreground">NOVA first-party similarity report</h3><p className="mt-1 max-w-2xl text-sm text-foreground/55">Auditable local passage matching for the exact saved version. References are excluded and no paid external plagiarism API is called.</p></div>
                         </div>
                         <Chip tone={statusTone(currentSimilarityReport.status)}>{labelize(currentSimilarityReport.status)}</Chip>
                       </div>
@@ -889,7 +956,7 @@ export function WritingStudio() {
                         <div className="rounded-2xl border border-primary/25 bg-primary/10 p-4"><div className="font-mono text-3xl font-semibold text-primary">{currentSimilarityReport.overall_similarity.toFixed(2)}%</div><div className="mt-1 text-xs uppercase tracking-wider text-foreground/45">Similarity score</div></div>
                         <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentSimilarityReport.match_count}</div><div className="mt-1 text-xs text-foreground/45">Matched passages</div></div>
                         <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentSimilarityReport.matched_word_count.toLocaleString()}</div><div className="mt-1 text-xs text-foreground/45">Overlapping screened words</div></div>
-                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentSimilarityReport.corpus_scope.sources_compared ?? 0}</div><div className="mt-1 text-xs text-foreground/45">Available sources compared</div></div>
+                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentSimilarityReport.corpus_scope.sources_compared ?? 0}</div><div className="mt-1 text-xs text-foreground/45">Sources compared · {(currentSimilarityReport.corpus_scope.nova_private_documents ?? 0) + (currentSimilarityReport.corpus_scope.nova_shared_documents ?? 0)} NOVA</div></div>
                       </div>
 
                       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.65fr)]">
@@ -902,14 +969,23 @@ export function WritingStudio() {
 
                         <div>
                           <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-medium text-foreground">Where overlap was found</h4><span className="text-xs text-foreground/40">Highest match first</span></div>
-                          {!currentSimilarityMatches.length ? <EmptyState icon={ScanSearch} title="No overlap found in the available corpus" body="This is not comprehensive plagiarism clearance. Use your institution's licensed similarity service for the final manuscript." className="mt-3 py-8" /> : <div className="mt-3 space-y-3">{currentSimilarityMatches.map((match) => <article key={match.id} className="rounded-2xl border border-border bg-panel p-4"><div className="flex flex-wrap items-center gap-2"><Chip tone="default">{match.section}</Chip><Chip tone={match.requires_human_review ? "warning" : "primary"}>{labelize(match.classification)}</Chip><span className="ml-auto font-mono text-sm text-primary">{match.similarity.toFixed(1)}% passage match</span></div><blockquote className="mt-3 border-l-2 border-warning/60 pl-3 text-sm leading-relaxed text-foreground/75">“{match.manuscript_excerpt}”</blockquote><div className="mt-3 rounded-xl bg-background/45 p-3"><div className="text-xs font-medium text-foreground">Source: {match.source_title}</div><div className="mt-1 text-[11px] text-foreground/45">{labelize(match.source_type)} · {match.matched_word_count} contiguous shared words</div><div className="mt-2 text-xs leading-relaxed text-foreground/55"><span className="font-medium">Normalized shared phrase:</span> “{match.source_excerpt}”</div>{match.source_reference?.startsWith("http") ? <a href={match.source_reference} target="_blank" rel="noreferrer" className="mt-2 inline-block break-all text-xs text-primary hover:underline">Open source reference</a> : match.source_reference ? <div className="mt-2 break-all text-[11px] text-foreground/35">Reference: {match.source_reference}</div> : null}</div>{match.requires_human_review ? <p className="mt-3 text-xs leading-relaxed text-warning">Human review required: check quotation, citation, permissions and acceptable reuse in context.</p> : null}</article>)}</div>}
+                          {!currentSimilarityMatches.length ? <EmptyState icon={ScanSearch} title="No overlap found in the available corpus" body="No eligible overlap was detected in NOVA's current private/shared and open-research corpus. Coverage grows as authorized documents are indexed." className="mt-3 py-8" /> : <div className="mt-3 space-y-3">{currentSimilarityMatches.map((match) => {
+                            const review = matchFeedback.find((item) => item.match_id === match.id && item.reviewer_id === user?.id);
+                            return <article key={match.id} className="rounded-2xl border border-border bg-panel p-4">
+                              <div className="flex flex-wrap items-center gap-2"><Chip tone="default">{match.section}</Chip><Chip tone={match.requires_human_review ? "warning" : "primary"}>{labelize(match.classification)}</Chip>{review ? <Chip tone="success">Reviewed · {labelize(review.verdict)}</Chip> : null}<span className="ml-auto font-mono text-sm text-primary">{match.similarity.toFixed(1)}% passage match</span></div>
+                              <blockquote className="mt-3 border-l-2 border-warning/60 pl-3 text-sm leading-relaxed text-foreground/75">“{match.manuscript_excerpt}”</blockquote>
+                              <div className="mt-3 rounded-xl bg-background/45 p-3"><div className="text-xs font-medium text-foreground">Source: {match.source_title}</div><div className="mt-1 text-[11px] text-foreground/45">{labelize(match.source_type)} · {match.matched_word_count} contiguous shared words</div><div className="mt-2 text-xs leading-relaxed text-foreground/55"><span className="font-medium">Normalized shared phrase:</span> “{match.source_excerpt}”</div>{match.source_reference?.startsWith("http") ? <a href={match.source_reference} target="_blank" rel="noreferrer" className="mt-2 inline-block break-all text-xs text-primary hover:underline">Open source reference</a> : match.source_type !== "nova_corpus" && match.source_reference ? <div className="mt-2 break-all text-[11px] text-foreground/35">Reference: {match.source_reference}</div> : null}</div>
+                              {match.requires_human_review ? <p className="mt-3 text-xs leading-relaxed text-warning">Human review required: check quotation, citation, permissions and acceptable reuse in context.</p> : null}
+                              <div className="mt-3 flex flex-wrap gap-2" aria-label="Similarity match review"><Button variant={review?.verdict === "confirmed_overlap" ? "primary" : "ghost"} size="sm" onClick={() => void setMatchVerdict(match, "confirmed_overlap")} disabled={Boolean(busy)}>Confirm overlap</Button><Button variant={review?.verdict === "needs_citation" ? "primary" : "ghost"} size="sm" onClick={() => void setMatchVerdict(match, "needs_citation")} disabled={Boolean(busy)}>Needs citation</Button><Button variant={review?.verdict === "acceptable_reuse" ? "primary" : "ghost"} size="sm" onClick={() => void setMatchVerdict(match, "acceptable_reuse")} disabled={Boolean(busy)}>Acceptable reuse</Button><Button variant={review?.verdict === "false_positive" ? "primary" : "ghost"} size="sm" onClick={() => void setMatchVerdict(match, "false_positive")} disabled={Boolean(busy)}>False positive</Button></div>
+                            </article>;
+                          })}</div>}
                         </div>
                       </div>
 
                       <p className="mt-5 rounded-xl border border-border bg-panel/60 px-4 py-3 text-xs leading-relaxed text-foreground/50">{currentSimilarityReport.disclaimer} Screened {formatDate(currentSimilarityReport.created_at)}.</p>
                     </section>
                   ) : null}
-                  <section className="glass-panel rounded-3xl p-5 sm:p-6" aria-labelledby="external-similarity-heading">
+                  {ENABLE_EXTERNAL_PROVIDER ? <section className="glass-panel rounded-3xl p-5 sm:p-6" aria-labelledby="external-similarity-heading">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="flex items-start gap-3">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-secondary/10 text-secondary"><RefreshCcw size={21} /></div>
@@ -936,12 +1012,12 @@ export function WritingStudio() {
                         <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentExternalScan.sources?.length ?? 0}</div><div className="mt-1 text-xs text-foreground/45">Reported sources</div></div>
                         <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentExternalScan.credits_used ?? "—"}</div><div className="mt-1 text-xs text-foreground/45">PlagAware ScanCredits</div></div>
                       </div>
-                      {currentExternalScan.error_message ? <ErrorBanner message={currentExternalScan.error_message} /> : null}
+                      {currentExternalScan.error_message ? <ErrorBanner>{currentExternalScan.error_message}</ErrorBanner> : null}
                       {currentExternalScan.sources?.length ? <div className="mt-5"><h4 className="text-sm font-medium text-foreground">Provider-reported sources</h4><div className="mt-3 grid gap-3 lg:grid-cols-2">{currentExternalScan.sources.map((source) => <article key={`${source.rank}-${source.url ?? source.title}`} className="rounded-xl border border-border bg-panel p-3"><div className="flex items-start gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary/10 font-mono text-xs text-secondary">{source.rank}</span><div className="min-w-0"><div className="text-sm font-medium text-foreground">{source.title}</div><div className="mt-1 flex flex-wrap gap-2 text-[11px] text-foreground/45">{source.similarity != null ? <span>{source.similarity.toFixed(2)}% source match</span> : null}{source.matched_words != null ? <span>· {source.matched_words} words</span> : null}</div>{source.url ? <a href={source.url} target="_blank" rel="noreferrer" className="mt-2 inline-block break-all text-xs text-primary hover:underline">Open matching source</a> : null}</div></div></article>)}</div></div> : null}
                       <div className="mt-4 flex flex-wrap gap-2">{currentExternalScan.report_html_url ? <a href={currentExternalScan.report_html_url} target="_blank" rel="noreferrer"><Button variant="secondary" size="sm"><FileText size={13} />Open detailed report</Button></a> : null}{currentExternalScan.report_pdf_url ? <a href={currentExternalScan.report_pdf_url} target="_blank" rel="noreferrer"><Button variant="secondary" size="sm"><Download size={13} />Open provider PDF</Button></a> : null}</div>
                       <p className="mt-4 rounded-xl border border-border bg-panel/60 px-4 py-3 text-xs leading-relaxed text-foreground/50">{currentExternalScan.disclaimer} Requested {formatDate(currentExternalScan.requested_at)}.</p>
                     </div> : null}
-                  </section>
+                  </section> : null}
                   {manuscript.readiness?.gates?.length ? <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{manuscript.readiness.gates.map((gate) => <div key={gate.key} className="glass-soft rounded-2xl p-4"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium text-foreground">{gate.label}</span><Chip tone={statusTone(gate.status)}>{labelize(gate.status)}</Chip></div><p className="mt-2 text-xs leading-relaxed text-foreground/55">{gate.detail}</p></div>)}</section> : null}
                   {!currentFindings.length ? <EmptyState icon={BookCheck} title="No validation record for this draft" body="Save at least 500 characters, specify the target journal, then run full validation." /> : <section className="space-y-3">{currentFindings.map((finding) => <article key={finding.id} className={`glass-panel rounded-2xl border-l-4 p-4 ${finding.severity === "blocking" ? "border-l-destructive" : finding.severity === "human_review" ? "border-l-secondary" : finding.severity === "warning" ? "border-l-warning" : "border-l-success"}`}><div className="flex flex-wrap items-center gap-2"><Chip tone={statusTone(finding.severity)}>{labelize(finding.severity)}</Chip><Chip tone="default">{labelize(finding.category)}</Chip>{finding.status !== "open" ? <Chip tone="success">{labelize(finding.status)}</Chip> : null}</div><h3 className="mt-3 font-medium text-foreground">{finding.title}</h3><p className="mt-1 text-sm leading-relaxed text-foreground/65">{finding.description}</p>{finding.recommendation ? <p className="mt-2 text-sm leading-relaxed text-primary/80"><span className="font-medium">Action:</span> {finding.recommendation}</p> : null}{finding.status === "open" && finding.severity !== "pass" && finding.severity !== "info" ? <div className="mt-3"><Button variant="secondary" size="sm" onClick={() => void resolveFinding(finding)}>{finding.severity === "warning" ? "Accept documented risk" : "Mark human review resolved"}</Button></div> : null}</article>)}</section>}
                 </div>
