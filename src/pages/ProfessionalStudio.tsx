@@ -36,7 +36,7 @@ const ACTIONS: ActionMeta[] = [
   { action: "literature_intelligence", label: "Literature Intelligence", description: "Clusters, citation leaders, methods and future directions within a selected corpus.", icon: Network, requiresRun: true, professorOnly: true },
   { action: "peer_review", label: "Structured Peer Reviewer", description: "Pre-submission scores, major/minor issues and conservative readiness recommendation.", icon: BookOpenCheck, requiresManuscript: true, professorOnly: true },
   { action: "grant_proposal", label: "Grant Proposal Studio", description: "Work packages, timeline, estimated budget, risks and compliance checks.", icon: BriefcaseBusiness, requiresRun: true, professorOnly: true },
-  { action: "global_grant_search", label: "Global Grant Discovery", description: "Live public opportunities, global funder profiles and official regional funding portals.", icon: Globe2 },
+  { action: "global_grant_search", label: "Global Grant Discovery", description: "Live public opportunities, global funder profiles and official regional funding portals.", icon: Globe2, professorOnly: true },
   { action: "collaborator_finder", label: "Collaborator Finder", description: "Candidate authors derived from exact corpus records; identity and contact remain unverified.", icon: UserRoundSearch, requiresRun: true, professorOnly: true },
   { action: "supervision_feedback", label: "Supervision Assistant", description: "Evidence-based progress summary, risks, actions and questions for a student.", icon: UsersRound, requiresAssignment: true, professorOnly: true },
 ];
@@ -101,7 +101,7 @@ export function ProfessionalStudio() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [profileRole, setProfileRole] = useState<Exclude<ProfessionalRole, "lab_admin">>("student");
+  const [profileRole, setProfileRole] = useState<ProfessionalRole>("student");
   const [fullName, setFullName] = useState("");
   const [institution, setInstitution] = useState("");
   const [department, setDepartment] = useState("");
@@ -118,7 +118,7 @@ export function ProfessionalStudio() {
 
   useEffect(() => {
     if (!profile) return;
-    if (profile.role !== "lab_admin") setProfileRole(profile.role);
+    setProfileRole(profile.role);
     setFullName(profile.full_name || "");
     setInstitution(profile.institution || "");
     setDepartment(profile.department || "");
@@ -168,7 +168,8 @@ export function ProfessionalStudio() {
   useEffect(() => { void loadBase(); }, [loadBase]);
   useEffect(() => { void loadProject(); }, [loadProject]);
 
-  const professor = profile?.role === "professor" || profile?.role === "lab_admin";
+  const privilegedProfileRole = profile?.role === "professor" || profile?.role === "lab_admin";
+  const professor = Boolean(profile?.privileged_role_verified && privilegedProfileRole);
   const availableActions = useMemo(() => ACTIONS.filter((item) => professor || !item.professorOnly), [professor]);
   useEffect(() => {
     if (!availableActions.some((item) => item.action === selectedAction)) setSelectedAction(availableActions[0]?.action ?? "topic_finder");
@@ -195,7 +196,7 @@ export function ProfessionalStudio() {
     setBusy("agent"); setError(null); setResult(null);
     const payload = {
       action: selectedAction, project_id: projectId,
-      run_id: actionMeta.requiresRun ? selectedRun || undefined : selectedRun || undefined,
+      run_id: actionMeta.requiresRun ? selectedRun || undefined : undefined,
       manuscript_id: actionMeta.requiresManuscript ? selectedManuscript || undefined : undefined,
       assignment_id: actionMeta.requiresAssignment ? selectedAssignment || undefined : undefined,
       goal, text: actionMeta.needsText ? text : undefined, constraints,
@@ -204,11 +205,23 @@ export function ProfessionalStudio() {
     };
     const functionName = selectedAction === "global_grant_search" ? "open-research" : "professional-agent";
     const functionPayload = selectedAction === "global_grant_search"
-      ? { action: "global_grant_search", project_id: projectId, run_id: selectedRun || undefined, query: goal }
+      ? { action: "global_grant_search", project_id: projectId, query: goal }
       : payload;
     const { data, error: invokeError } = await supabase.functions.invoke(functionName, { body: functionPayload });
     setBusy(null);
-    if (invokeError || data?.error) { setError(data?.error || invokeError?.message || "Professional workflow failed"); return; }
+    if (invokeError || data?.error) {
+      let message = data?.error || invokeError?.message || "Professional workflow failed";
+      const context = invokeError?.context as Response | undefined;
+      if (!data?.error && context && typeof context.clone === "function") {
+        try {
+          const payload = await context.clone().json() as { error?: string; detail?: string };
+          if (payload.error && payload.detail) message = `${payload.error}: ${payload.detail}`;
+          else message = payload.detail || payload.error || message;
+        } catch { /* Preserve the SDK fallback message when the body is not JSON. */ }
+      }
+      setError(message);
+      return;
+    }
     setResult(data.record as RoleAgentOutput);
     await loadProject();
   };
@@ -271,12 +284,15 @@ export function ProfessionalStudio() {
         />
 
         {error ? <ErrorBanner className="mb-5">{error}</ErrorBanner> : null}
+        {(profile?.role === "professor" || profile?.role === "lab_admin") && !profile.privileged_role_verified ? (
+          <ErrorBanner className="mb-5">This privileged role is awaiting administrator verification. Professor and Lab Admin workflows remain locked until verification is complete.</ErrorBanner>
+        ) : null}
 
         {!profile?.onboarding_completed ? (
           <section className="glass-panel mb-6 rounded-3xl border-primary/30 p-6">
             <div className="flex items-center gap-3"><GraduationCap className="text-primary" /><div><h2 className="font-heading text-xl">Complete your professional profile</h2><p className="text-sm text-foreground/55">This controls the tools, depth and terminology NOVA uses.</p></div></div>
             <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <label className="text-xs text-foreground/60">Role<select value={profileRole} onChange={(event) => setProfileRole(event.target.value as Exclude<ProfessionalRole, "lab_admin">)} className={`${FIELD} mt-1`}><option value="student">Student</option><option value="professor">Professor / Supervisor</option><option value="research_assistant">Research Assistant</option></select></label>
+              <label className="text-xs text-foreground/60">Role<select value={profileRole} onChange={(event) => setProfileRole(event.target.value as ProfessionalRole)} disabled={privilegedProfileRole} className={`${FIELD} mt-1 disabled:cursor-not-allowed disabled:opacity-70`}>{privilegedProfileRole ? <option value={profileRole}>{ROLE_LABEL[profileRole]}</option> : <><option value="student">Student</option><option value="research_assistant">Research Assistant</option></>}</select><span className="mt-1 block text-[11px] text-foreground/40">Professor and Lab Admin roles are administrator-verified.</span></label>
               <label className="text-xs text-foreground/60">Full name<input value={fullName} onChange={(event) => setFullName(event.target.value)} className={`${FIELD} mt-1`} /></label>
               <label className="text-xs text-foreground/60">Institution<input value={institution} onChange={(event) => setInstitution(event.target.value)} className={`${FIELD} mt-1`} /></label>
               <label className="text-xs text-foreground/60">Department<input value={department} onChange={(event) => setDepartment(event.target.value)} className={`${FIELD} mt-1`} /></label>

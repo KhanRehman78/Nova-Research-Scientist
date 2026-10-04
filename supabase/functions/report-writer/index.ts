@@ -1,5 +1,5 @@
 // NOVA report-writer — assembles all pipeline outputs into a structured research proposal.
-import { getAuthedClient, json, ok } from "../_shared/mod.ts";
+import { getAuthedClient, json, ok, rateLimit } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const REPORT_SCHEMA = {
@@ -34,6 +34,8 @@ Deno.serve(async (req) => {
     return json({ error: e.message }, e.status ?? 401);
   }
   const { supabase } = authed;
+  const limited = await rateLimit(supabase, "report-writer", 30);
+  if (limited) return limited;
 
   let body: { run_id?: string } = {};
   try {

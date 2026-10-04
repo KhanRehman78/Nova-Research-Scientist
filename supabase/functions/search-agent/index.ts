@@ -4,6 +4,7 @@ import {
   getAuthedClient,
   json,
   ok,
+  rateLimit,
   sleep,
   stripHtml,
   abstractFromInvertedIndex,
@@ -51,6 +52,8 @@ Deno.serve(async (req) => {
     return json({ error: e.message }, e.status ?? 401);
   }
   const { supabase } = authed;
+  const limited = await rateLimit(supabase, "search-agent", 20);
+  if (limited) return limited;
 
   let body: { run_id?: string } = {};
   try {
@@ -202,10 +205,26 @@ Deno.serve(async (req) => {
     saved_at: new Date().toISOString(),
   };
 
+  if (deduped.length === 0) {
+    const detail = sourceStatus
+      .map((source) => `${source.source}: ${source.status}${source.error ? ` (${source.error})` : ""}`)
+      .join("; ");
+    await supabase
+      .from("run_tasks")
+      .update({
+        status: "failed",
+        output: summary,
+        error: `No papers were returned. ${detail}`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", taskId);
+    return json({ error: "No academic papers were returned for this query", ...summary }, 502);
+  }
+
   await supabase
     .from("run_tasks")
     .update({
-      status: deduped.length > 0 ? "done" : "done",
+      status: "done",
       output: summary,
       error: null,
       updated_at: new Date().toISOString(),

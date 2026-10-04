@@ -1,6 +1,6 @@
 // NOVA Professional Agent — role-aware student, professor, reviewer and lab tools.
 // Every generated output is persisted with its evidence quality and source run.
-import { fetchWithRetry, getAuthedClient, json, ok, truncate } from "../_shared/mod.ts";
+import { fetchWithRetry, getAuthedClient, json, ok, rateLimit, serviceClient, truncate } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const ACTIONS = new Set([
@@ -186,6 +186,9 @@ Deno.serve(async (req) => {
   try { authed = await getAuthedClient(req); }
   catch (error: any) { return json({ error: error.message }, error.status ?? 401); }
   const { supabase, user } = authed;
+  const limited = await rateLimit(supabase, "professional-agent", 30);
+  if (limited) return limited;
+  const admin = serviceClient();
 
   let body: Body;
   try { body = await req.json(); }
@@ -196,11 +199,11 @@ Deno.serve(async (req) => {
 
   const [{ data: project }, { data: profile }] = await Promise.all([
     supabase.from("projects").select("id, name, description, owner_id").eq("id", body.project_id).maybeSingle(),
-    supabase.from("profiles").select("id, full_name, role, institution, department, research_interests, expertise_level").eq("id", user.id).single(),
+    supabase.from("profiles").select("id, full_name, role, privileged_role_verified, institution, department, research_interests, expertise_level").eq("id", user.id).single(),
   ]);
   if (!project) return json({ error: "Project not found or forbidden" }, 404);
   if (!profile) return json({ error: "Professional profile is unavailable" }, 409);
-  if (PROFESSOR_ACTIONS.has(action) && !["professor", "lab_admin"].includes(profile.role)) {
+  if (PROFESSOR_ACTIONS.has(action) && (!profile.privileged_role_verified || !["professor", "lab_admin"].includes(profile.role))) {
     return json({ error: "This workflow requires a Professor or Lab Admin profile" }, 403);
   }
 
@@ -272,7 +275,7 @@ Deno.serve(async (req) => {
       candidates,
       next_checks: ["Confirm the OpenAlex/ORCID identity against the cited papers.", "Review contribution fit and authorship expertise.", "Use the researcher's current institutional profile for ethical contact."],
     };
-    const { data: saved, error } = await supabase.from("role_agent_outputs").insert({
+    const { data: saved, error } = await admin.from("role_agent_outputs").insert({
       project_id: project.id, user_id: user.id, source_run_id: run.id, action,
       title: titleFor(action, body, output), input_json: { run_id: run.id }, output_json: output,
       evidence_quality: "grounded", model: "deterministic-corpus-plus-openalex",
@@ -344,10 +347,10 @@ Deno.serve(async (req) => {
 
   const grounded = Boolean(run || body.paper_id || manuscript || assignment);
   const evidenceQuality = action === "grant_proposal" ? "requires_verification" : grounded ? "grounded" : "requires_verification";
-  const { data: saved, error: saveError } = await supabase.from("role_agent_outputs").insert({
+  const { data: saved, error: saveError } = await admin.from("role_agent_outputs").insert({
     project_id: project.id, user_id: user.id, source_run_id: run?.id ?? null, action,
     title: titleFor(action, body, output),
-    input_json: { goal: body.goal ?? "", constraints: body.constraints ?? "", funding_program: body.funding_program ?? "", manuscript_id: body.manuscript_id ?? null, assignment_id: body.assignment_id ?? null },
+    input_json: { goal: truncate(body.goal, 6000), constraints: truncate(body.constraints, 4000), funding_program: truncate(body.funding_program, 1000), manuscript_id: body.manuscript_id ?? null, assignment_id: body.assignment_id ?? null },
     output_json: output, evidence_quality: evidenceQuality,
     model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6-luna",
   }).select().single();

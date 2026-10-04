@@ -1,6 +1,6 @@
 // NOVA External Similarity — authenticated PlagAware web-corpus scans.
 // Provider results are version-bound decision support, never plagiarism proof.
-import { fetchWithRetry, getAuthedClient, json, ok, serviceClient, truncate } from "../_shared/mod.ts";
+import { fetchWithRetry, getAuthedClient, json, ok, rateLimit, serviceClient, truncate } from "../_shared/mod.ts";
 
 const PROVIDER = "plagaware";
 const SUBMIT_URL = "https://www.plagaware.com/service/api";
@@ -125,6 +125,8 @@ Deno.serve(async (req) => {
     return json({ error: error.message }, error.status ?? 401);
   }
   const { supabase, user } = authed;
+  const limited = await rateLimit(supabase, "external-similarity", 10);
+  if (limited) return limited;
   const admin = serviceClient();
 
   let body: RequestBody;

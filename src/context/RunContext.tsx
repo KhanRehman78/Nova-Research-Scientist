@@ -9,7 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { STAGES, STAGE_FN } from "../lib/constants";
+import { STAGES } from "../lib/constants";
 import type { StageKey, TaskStatus } from "../lib/types";
 
 export type StageStatus = {
@@ -114,13 +114,17 @@ export function RunProvider({ children }: { children: ReactNode }) {
             row.status === "done" ? "done" : row.status,
             row.error,
           );
+          if (row.status === "done") {
+            const destination = AUTO_NAV[row.stage as StageKey];
+            if (destination) navigate(destination(runId));
+          }
         },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [runId, setStage]);
+  }, [navigate, runId, setStage]);
 
   const start = useCallback(
     async (id: string) => {
@@ -129,76 +133,28 @@ export function RunProvider({ children }: { children: ReactNode }) {
       setRunId(id);
       setActive(true);
       setStages(PENDING.map((s) => (s.key === "plan" ? { ...s, status: "done" } : s)));
-
-      await supabase
-        .from("research_runs")
-        .update({
-          status: "running",
-          current_stage: "search",
-          finished_at: null,
-        })
-        .eq("id", id);
-
-      // Pull existing DB progress so resuming a completed run doesn't re-run anything.
-      const { data } = await supabase
-        .from("run_tasks")
-        .select("stage, status, error")
-        .eq("run_id", id);
-      const dbMap = new Map<string, { status: TaskStatus; error?: string | null }>();
-      (data ?? []).forEach((r) => dbMap.set(r.stage, { status: r.status, error: r.error }));
-      applyDbStatuses(data ?? []);
-
-      for (const stage of STAGES) {
-        if (stage.key === "plan") continue;
-        const prior = dbMap.get(stage.key)?.status;
-        if (prior === "done") {
-          setStage(stage.key, "done");
-          const nav = AUTO_NAV[stage.key];
-          if (nav) navigate(nav(id));
-          continue;
+      try {
+        await loadTasks(id);
+        const { data, error } = await supabase.functions.invoke("research-manager", {
+          body: { action: "run", run_id: id },
+        });
+        if (error || data?.status !== "completed") {
+          throw new Error(data?.error || error?.message || "Research pipeline failed");
         }
-        setStage(stage.key, "running");
-        const fn = STAGE_FN[stage.key];
-        if (fn) {
-          try {
-            const { data: res, error } = await supabase.functions.invoke(fn, {
-              body: { run_id: id },
-            });
-            if (error) {
-              const msg = (error as { message?: string })?.message;
-              const detail = (res as { error?: string })?.error;
-              throw new Error(detail || msg || `${stage.label} failed`);
-            }
-          } catch (e) {
-            const message = (e as Error).message;
-            setStage(stage.key, "failed", message);
-            await supabase
-              .from("research_runs")
-              .update({ status: "failed", current_stage: stage.key })
-              .eq("id", id);
-            setActive(false);
-            runningRef.current = false;
-            return;
-          }
-        }
-        setStage(stage.key, "done");
-        const nav = AUTO_NAV[stage.key];
-        if (nav) navigate(nav(id));
+        await loadTasks(id);
+        navigate(`/report/${id}`);
+      } catch (error) {
+        await loadTasks(id);
+        const message = (error as Error).message || "Research pipeline failed";
+        setStages((current) => current.map((stage) =>
+          stage.status === "running" ? { ...stage, status: "failed", error: message } : stage,
+        ));
+      } finally {
+        setActive(false);
+        runningRef.current = false;
       }
-
-      await supabase
-        .from("research_runs")
-        .update({
-          status: "completed",
-          current_stage: "report",
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", id);
-
-      setActive(false);
-      runningRef.current = false;
     },
-    [applyDbStatuses, navigate, setStage],
+    [loadTasks, navigate],
   );
 
   const reset = useCallback(() => {

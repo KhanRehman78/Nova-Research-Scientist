@@ -1,6 +1,6 @@
 // NOVA Paper Validator — deterministic checks, DOI verification and AI-assisted
 // review. It produces auditable findings, never publication guarantees.
-import { fetchWithRetry, getAuthedClient, json, ok, serviceClient, truncate } from "../_shared/mod.ts";
+import { fetchWithRetry, getAuthedClient, json, ok, rateLimit, serviceClient, truncate } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const VALIDATION_PROMPT_VERSION = "paper-validator-v2-cost-aware";
@@ -359,6 +359,8 @@ Deno.serve(async (req) => {
     return json({ error: error.message }, error.status ?? 401);
   }
   const { supabase, user } = authed;
+  const limited = await rateLimit(supabase, "paper-validator", 20);
+  if (limited) return limited;
   const admin = serviceClient();
 
   let body: { manuscript_id?: string; deterministic_only?: boolean };

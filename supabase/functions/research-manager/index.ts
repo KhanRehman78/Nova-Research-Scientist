@@ -1,5 +1,5 @@
 // NOVA research-manager — plans a research run and orchestrates the agent pipeline.
-import { getAuthedClient, json, ok } from "../_shared/mod.ts";
+import { getAuthedClient, json, ok, rateLimit } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const PLAN_SCHEMA = {
@@ -46,6 +46,8 @@ Deno.serve(async (req) => {
     return json({ error: e.message }, e.status ?? 401);
   }
   const { supabase, user } = authed;
+  const limited = await rateLimit(supabase, "research-manager", 20);
+  if (limited) return limited;
 
   let body: any = {};
   try {
@@ -62,6 +64,7 @@ Deno.serve(async (req) => {
     const projectId = body.project_id;
 
     if (!query) return json({ error: "query is required" }, 400);
+    if (query.length > 2000) return json({ error: "query must be 2,000 characters or fewer" }, 413);
     if (!MODES.includes(mode)) return json({ error: "Invalid mode" }, 400);
     if (!projectId) return json({ error: "project_id is required" }, 400);
 
@@ -131,10 +134,31 @@ Deno.serve(async (req) => {
 
     const { data: run, error: runErr } = await supabase
       .from("research_runs")
-      .select("id, query, mode, project_id")
+      .select("id, query, mode, project_id, status")
       .eq("id", runId)
       .single();
     if (runErr || !run) return json({ error: "Run not found or forbidden" }, 404);
+    if (run.status === "completed") {
+      return json({ run_id: runId, status: "completed", results: {}, resumed: true });
+    }
+
+    const { data: claimed, error: claimError } = await supabase.rpc("claim_research_run", {
+      p_run_id: runId,
+    });
+    if (claimError) return json({ error: claimError.message }, 500);
+    if (!claimed) {
+      return json({ error: "This research pipeline is already running. Try again after its current stage finishes." }, 409);
+    }
+
+    const { data: taskRows } = await supabase
+      .from("run_tasks")
+      .select("stage, status")
+      .eq("run_id", runId);
+    const completedStages = new Set(
+      (taskRows ?? [])
+        .filter((task: { stage: string; status: string }) => task.status === "done")
+        .map((task: { stage: string; status: string }) => task.stage),
+    );
 
     await supabase
       .from("research_runs")
@@ -146,10 +170,15 @@ Deno.serve(async (req) => {
     const stageNames = ["search", "paper-reader", "gap", "hypothesis", "report"];
     const results: Record<string, any> = {};
     let failed = false;
+    let failedStage: string | null = null;
 
     for (let i = 0; i < stages.length; i++) {
       const fn = stages[i];
       const stage = stageNames[i];
+      if (completedStages.has(stage)) {
+        results[stage] = { skipped: true, reason: "already completed" };
+        continue;
+      }
       await supabase
         .from("research_runs")
         .update({ current_stage: stage, updated_at: new Date().toISOString() })
@@ -159,6 +188,7 @@ Deno.serve(async (req) => {
         results[stage] = data;
       } catch (e) {
         failed = true;
+        failedStage = stage;
         results[stage] = { error: (e as Error)?.message };
         await supabase
           .from("run_tasks")
@@ -174,7 +204,7 @@ Deno.serve(async (req) => {
       .from("research_runs")
       .update({
         status: finalStatus,
-        current_stage: "report",
+        current_stage: failedStage ?? "report",
         finished_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

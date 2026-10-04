@@ -1,11 +1,12 @@
 // NOVA invite-member — owner adds a colleague to a shared research project.
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { getAuthedClient, json, ok } from "../_shared/mod.ts";
+import { getAuthedClient, json, ok, rateLimit } from "../_shared/mod.ts";
 
 const ROLES = ["professor", "student", "research_assistant"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return ok();
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   let authed;
   try {
@@ -14,6 +15,8 @@ Deno.serve(async (req) => {
     return json({ error: e.message }, e.status ?? 401);
   }
   const { supabase, user } = authed;
+  const limited = await rateLimit(supabase, "invite-member", 20);
+  if (limited) return limited;
 
   let body: { project_id?: string; email?: string; role?: string } = {};
   try {
@@ -44,13 +47,26 @@ Deno.serve(async (req) => {
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
   );
-  const { data: listing } = await admin.auth.admin.listUsers({ perPage: 1000 });
-  const target = (listing?.users ?? []).find(
-    (u: any) => (u.email ?? "").toLowerCase() === email,
-  );
+  let target: any = null;
+  for (let page = 1; page <= 50 && !target; page += 1) {
+    const { data: listing, error: listError } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (listError) return json({ error: "The invitation directory is temporarily unavailable" }, 503);
+    const users = listing?.users ?? [];
+    target = users.find((candidate: any) => (candidate.email ?? "").toLowerCase() === email) ?? null;
+    if (users.length < 1000) break;
+  }
+  let invitationSent = false;
   if (!target) {
-    return json({ error: "No NOVA account found for that email yet" }, 404);
+    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+      data: { role: role === "research_assistant" ? "research_assistant" : "student" },
+    });
+    if (inviteError || !invited.user) {
+      return json({ error: "The invitation could not be sent. Please verify the address and try again." }, 400);
+    }
+    target = invited.user;
+    invitationSent = true;
   }
   if (target.id === user.id) {
     return json({ error: "That's your own account" }, 400);
@@ -64,5 +80,5 @@ Deno.serve(async (req) => {
     );
   if (insErr) return json({ error: insErr.message }, 500);
 
-  return json({ ok: true, email, role });
+  return json({ ok: true, email, role, invitation_sent: invitationSent });
 });

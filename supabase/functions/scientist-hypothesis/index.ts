@@ -1,5 +1,5 @@
 // NOVA scientist-hypothesis — generates a scored hypothesis + experiment design.
-import { getAuthedClient, json, ok } from "../_shared/mod.ts";
+import { getAuthedClient, json, ok, rateLimit } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const HYPOTHESIS_SCHEMA = {
@@ -57,6 +57,8 @@ Deno.serve(async (req) => {
     return json({ error: e.message }, e.status ?? 401);
   }
   const { supabase } = authed;
+  const limited = await rateLimit(supabase, "scientist-hypothesis", 30);
+  if (limited) return limited;
 
   let body: { run_id?: string } = {};
   try {
@@ -174,6 +176,12 @@ Deno.serve(async (req) => {
     .single();
   if (expErr) {
     console.error("experiment save failed", expErr);
+    await supabase
+      .from("run_tasks")
+      .update({ status: "failed", error: expErr.message, updated_at: new Date().toISOString() })
+      .eq("run_id", runId)
+      .in("stage", ["hypothesis", "experiment"]);
+    return json({ error: "Experiment design could not be saved", detail: expErr.message }, 500);
   }
 
   await supabase

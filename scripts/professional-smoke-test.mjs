@@ -43,12 +43,30 @@ try {
   professorId = createdProfessor.data.user.id;
   studentId = createdStudent.data.user.id;
 
+  const { error: verifyProfessorError } = await admin.rpc("set_verified_professional_role", {
+    p_profile_id: professorId,
+    p_role: "professor",
+  });
+  check(!verifyProfessorError, "Could not verify professor role", verifyProfessorError?.message);
+  const { data: verifiedProfile, error: verifiedProfileError } = await admin
+    .from("profiles")
+    .select("role, privileged_role_verified")
+    .eq("id", professorId)
+    .single();
+  check(
+    verifiedProfile?.role === "professor" && verifiedProfile?.privileged_role_verified && !verifiedProfileError,
+    "Professor verification did not persist",
+    verifiedProfileError?.message ?? JSON.stringify(verifiedProfile),
+  );
+
   const [professorSignIn, studentSignIn] = await Promise.all([
     professor.auth.signInWithPassword({ email: professorEmail, password }),
     student.auth.signInWithPassword({ email: studentEmail, password }),
   ]);
   check(!professorSignIn.error, "Professor sign-in failed", professorSignIn.error?.message);
   check(!studentSignIn.error, "Student sign-in failed", studentSignIn.error?.message);
+  check(professorSignIn.data.user?.id === professorId, "Professor client received the wrong session");
+  check(studentSignIn.data.user?.id === studentId, "Student client received the wrong session");
 
   const { data: profiled, error: profileError } = await professor.rpc("set_own_professional_profile", {
     p_role: "professor", p_full_name: "Professor Smoke", p_institution: "NOVA Test University",

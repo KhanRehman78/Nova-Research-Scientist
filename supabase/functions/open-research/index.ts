@@ -1,6 +1,6 @@
 // NOVA open-research — authenticated, auditable enrichment for OA metadata,
 // machine-readable full text, journal rules and global funding discovery.
-import { fetchWithRetry, getAuthedClient, json, ok, serviceClient, stripHtml, truncate } from "../_shared/mod.ts";
+import { fetchWithRetry, getAuthedClient, json, ok, rateLimit, serviceClient, stripHtml, truncate } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 type Body = {
@@ -383,6 +383,10 @@ async function extractJournalProfile(supabase: any, admin: any, body: Body) {
 
 async function globalGrantSearch(supabase: any, admin: any, userId: string, body: Body) {
   if (!body.project_id) return json({ error: "project_id is required" }, 400);
+  const { data: profile } = await supabase.from("profiles").select("role,privileged_role_verified").eq("id", userId).maybeSingle();
+  if (!profile || !profile.privileged_role_verified || !["professor", "lab_admin"].includes(profile.role)) {
+    return json({ error: "Global grant discovery requires a verified Professor or Lab Admin profile" }, 403);
+  }
   const query = String(body.query ?? "").trim();
   if (query.length < 3) return json({ error: "Enter at least 3 characters for grant discovery" }, 400);
   const { data: project } = await supabase.from("projects").select("id,name").eq("id", body.project_id).maybeSingle();
@@ -463,6 +467,8 @@ Deno.serve(async (req) => {
   let authed;
   try { authed = await getAuthedClient(req); }
   catch (error: any) { return json({ error: error.message }, error.status ?? 401); }
+  const limited = await rateLimit(authed.supabase, "open-research", 20);
+  if (limited) return limited;
   let body: Body;
   try { body = await req.json(); }
   catch { return json({ error: "Invalid JSON body" }, 400); }

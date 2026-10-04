@@ -14,7 +14,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { Button, ErrorBanner, Spinner } from "./ui";
 import { APP_NAME, APP_TAGLINE } from "../lib/constants";
-import type { ProfessionalRole } from "../lib/types";
+import type { SelfAssignableRole } from "../lib/types";
 
 const STAGE_PREVIEW = [
   { icon: Network, label: "Search 5 academic sources" },
@@ -25,32 +25,75 @@ const STAGE_PREVIEW = [
 ];
 
 export function AuthScreen() {
-  const { signIn, signUp, loading, session } = useAuth();
+  const {
+    signIn,
+    signUp,
+    requestPasswordReset,
+    updatePassword,
+    passwordRecovery,
+    loading,
+    session,
+  } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const recoveryLink = new URLSearchParams(window.location.search).get("recovery") === "1";
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot" | "reset">(
+    recoveryLink ? "reset" : "signin",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<Exclude<ProfessionalRole, "lab_admin">>("student");
+  const [role, setRole] = useState<SelfAssignableRole>("student");
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    if (passwordRecovery || recoveryLink) {
+      setMode("reset");
+      return;
+    }
     if (session) navigate("/dashboard", { replace: true });
-  }, [navigate, session]);
+  }, [navigate, passwordRecovery, recoveryLink, session]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setConfirmMsg(null);
+    if (mode === "forgot") {
+      if (!email.trim()) {
+        setError("Please enter your email address.");
+        return;
+      }
+      setBusy(true);
+      const res = await requestPasswordReset(email.trim());
+      setBusy(false);
+      if (res.error) setError(res.error);
+      else setConfirmMsg("If an account exists for that email, a password reset link has been sent.");
+      return;
+    }
+    if (mode === "reset") {
+      if (password.length < 8) {
+        setError("Your new password needs to be at least 8 characters.");
+        return;
+      }
+      setBusy(true);
+      const res = await updatePassword(password);
+      setBusy(false);
+      if (res.error) setError(res.error);
+      else navigate("/dashboard", { replace: true });
+      return;
+    }
     if (!email.trim() || !password) {
       setError("Please enter your email and password.");
       return;
     }
-    if (mode === "signup" && password.length < 6) {
-      setError("Your password needs to be at least 6 characters.");
+    if (mode === "signup" && !name.trim()) {
+      setError("Please enter your full name.");
+      return;
+    }
+    if (mode === "signup" && password.length < 8) {
+      setError("Your password needs to be at least 8 characters.");
       return;
     }
     setBusy(true);
@@ -122,15 +165,25 @@ export function AuthScreen() {
           </div>
 
           <h2 className="font-heading text-2xl text-foreground">
-            {mode === "signin" ? "Welcome back" : "Create your workspace"}
+            {mode === "signin"
+              ? "Welcome back"
+              : mode === "signup"
+                ? "Create your workspace"
+                : mode === "forgot"
+                  ? "Reset your password"
+                  : "Choose a new password"}
           </h2>
           <p className="mt-1 text-sm text-foreground/55">
             {mode === "signin"
               ? "Sign in to continue your research."
-              : "Start running autonomous research in seconds."}
+              : mode === "signup"
+                ? "Start running autonomous research in seconds."
+                : mode === "forgot"
+                  ? "We'll email a secure recovery link if the account exists."
+                  : "Use at least 8 characters for your new password."}
           </p>
 
-          <div className="mt-6 grid grid-cols-2 rounded-xl border border-border bg-panel p-1 text-sm font-medium">
+          {mode !== "forgot" && mode !== "reset" ? <div className="mt-6 grid grid-cols-2 rounded-xl border border-border bg-panel p-1 text-sm font-medium">
             {(["signin", "signup"] as const).map((m) => (
               <button
                 key={m}
@@ -144,7 +197,7 @@ export function AuthScreen() {
                 {m === "signin" ? "Sign in" : "Create account"}
               </button>
             ))}
-          </div>
+          </div> : null}
 
           {error ? <ErrorBanner className="mt-4">{error}</ErrorBanner> : null}
           {confirmMsg ? (
@@ -171,19 +224,18 @@ export function AuthScreen() {
                   <span className="mb-1.5 block text-sm text-foreground/70">Professional role</span>
                   <select
                     value={role}
-                    onChange={(event) => setRole(event.target.value as Exclude<ProfessionalRole, "lab_admin">)}
+                    onChange={(event) => setRole(event.target.value as SelfAssignableRole)}
                     className="w-full cursor-pointer rounded-xl border border-border bg-panel px-4 py-2.5 text-sm text-foreground focus:border-primary focus:outline-2 focus:outline-primary/50"
                   >
                     <option value="student">Student</option>
-                    <option value="professor">Professor / Supervisor</option>
                     <option value="research_assistant">Research Assistant</option>
                   </select>
-                  <span className="mt-1 block text-[11px] text-foreground/45">Lab Admin access is assigned by an authorized administrator.</span>
+                  <span className="mt-1 block text-[11px] text-foreground/45">Professor and Lab Admin access require administrator verification.</span>
                 </label>
               </>
             ) : null}
 
-            <label className="block">
+            {mode !== "reset" ? <label className="block">
               <span className="mb-1.5 block text-sm text-foreground/70">Email</span>
               <input
                 type="email"
@@ -194,10 +246,10 @@ export function AuthScreen() {
                 required
                 className="w-full rounded-xl border border-border bg-panel px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/35 focus:border-primary focus:outline-2 focus:outline-primary/50"
               />
-            </label>
+            </label> : null}
 
-            <label className="block">
-              <span className="mb-1.5 block text-sm text-foreground/70">Password</span>
+            {mode !== "forgot" ? <label className="block">
+              <span className="mb-1.5 block text-sm text-foreground/70">{mode === "reset" ? "New password" : "Password"}</span>
               <div className="relative">
                 <input
                   type={showPw ? "text" : "password"}
@@ -217,20 +269,44 @@ export function AuthScreen() {
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-            </label>
+            </label> : null}
 
             <Button type="submit" size="lg" className="w-full" disabled={busy || loading}>
               {busy ? <Spinner size={16} /> : null}
-              {mode === "signin" ? "Sign in" : "Create account"}
+              {mode === "signin"
+                ? "Sign in"
+                : mode === "signup"
+                  ? "Create account"
+                  : mode === "forgot"
+                    ? "Send reset link"
+                    : "Update password"}
               {!busy ? <ArrowRight size={16} /> : null}
             </Button>
           </form>
 
-          <p className="mt-6 text-center text-xs text-foreground/45">
+          {mode === "signin" ? (
+            <button
+              type="button"
+              onClick={() => { setMode("forgot"); setError(null); setConfirmMsg(null); }}
+              className="mt-4 w-full cursor-pointer text-center text-xs text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              Forgot your password?
+            </button>
+          ) : mode === "forgot" ? (
+            <button
+              type="button"
+              onClick={() => { setMode("signin"); setError(null); setConfirmMsg(null); }}
+              className="mt-4 w-full cursor-pointer text-center text-xs text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              Back to sign in
+            </button>
+          ) : null}
+
+          {mode !== "forgot" && mode !== "reset" ? <p className="mt-6 text-center text-xs text-foreground/45">
             {mode === "signin"
               ? "No account? Tap “Create account” above — it takes a minute."
               : "By continuing you agree to treat research data responsibly."}
-          </p>
+          </p> : null}
         </div>
       </div>
     </div>

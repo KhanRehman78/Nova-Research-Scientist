@@ -1,5 +1,5 @@
 // NOVA Writing Assistant — mode-aware editorial analysis and grounded drafting.
-import { getAuthedClient, json, ok, serviceClient, truncate } from "../_shared/mod.ts";
+import { getAuthedClient, json, ok, rateLimit, serviceClient, truncate } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const WRITING_PROMPT_VERSION = "academic-editor-v2-cost-aware";
@@ -58,6 +58,8 @@ Deno.serve(async (req) => {
     return json({ error: error.message }, error.status ?? 401);
   }
   const { supabase } = authed;
+  const limited = await rateLimit(supabase, "writing-assistant", 30);
+  if (limited) return limited;
   const admin = serviceClient();
 
   let body: { manuscript_id?: string; action?: "analyze" | "draft_from_research" };
@@ -240,10 +242,10 @@ Deno.serve(async (req) => {
       content_sha256: contentHash,
     }));
 
-  await supabase.from("writing_suggestions").delete().eq("manuscript_id", manuscript.id).eq("status", "open");
+  await admin.from("writing_suggestions").delete().eq("manuscript_id", manuscript.id).eq("status", "open");
   let saved: any[] = [];
   if (suggestions.length) {
-    const { data, error } = await supabase.from("writing_suggestions").insert(suggestions).select();
+    const { data, error } = await admin.from("writing_suggestions").insert(suggestions).select();
     if (error) return json({ error: error.message }, 500);
     saved = data ?? [];
   }

@@ -8,7 +8,7 @@ import {
 import type { ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import type { ProfessionalRole, Profile } from "../lib/types";
+import type { Profile, SelfAssignableRole } from "../lib/types";
 
 type AuthResult = { error: string | null };
 
@@ -17,13 +17,16 @@ interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  passwordRecovery: boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (
     email: string,
     password: string,
     fullName: string,
-    role: Exclude<ProfessionalRole, "lab_admin">,
+    role: SelfAssignableRole,
   ) => Promise<AuthResult>;
+  requestPasswordReset: (email: string) => Promise<AuthResult>;
+  updatePassword: (password: string) => Promise<AuthResult>;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -35,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   const refreshProfile = useCallback(async (uid: string) => {
     const { data } = await supabase
@@ -52,9 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session?.user) refreshProfile(data.session.user.id);
       setLoading(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       if (s?.user) refreshProfile(s.user.id);
       else setProfile(null);
     });
@@ -65,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string): Promise<AuthResult> => {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return { error: friendlyAuthError(error.message) };
+      setPasswordRecovery(false);
       return { error: null };
     },
     [],
@@ -75,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       fullName: string,
-      role: Exclude<ProfessionalRole, "lab_admin">,
+      role: SelfAssignableRole,
     ): Promise<AuthResult> => {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -93,6 +99,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refreshProfile],
   );
 
+  const requestPasswordReset = useCallback(async (email: string): Promise<AuthResult> => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth?recovery=1`,
+    });
+    return { error: error ? friendlyAuthError(error.message) : null };
+  }, []);
+
+  const updatePassword = useCallback(async (password: string): Promise<AuthResult> => {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return { error: friendlyAuthError(error.message) };
+    setPasswordRecovery(false);
+    return { error: null };
+  }, []);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, []);
@@ -103,7 +123,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user, profile, loading, signIn, signUp, signOut, refreshProfile: refreshCurrentProfile }}
+      value={{
+        session,
+        user,
+        profile,
+        loading,
+        passwordRecovery,
+        signIn,
+        signUp,
+        requestPasswordReset,
+        updatePassword,
+        signOut,
+        refreshProfile: refreshCurrentProfile,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -125,7 +157,7 @@ function friendlyAuthError(msg: string): string {
     return "An account with that email already exists — try signing in instead.";
   }
   if (m.includes("password should be at least")) {
-    return "Your password needs to be at least 6 characters.";
+    return "Your password needs to be at least 8 characters.";
   }
   if (m.includes("rate limit")) {
     return "Too many attempts — wait a moment and try again.";

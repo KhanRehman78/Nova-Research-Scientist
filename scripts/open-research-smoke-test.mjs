@@ -27,6 +27,11 @@ try {
   const created = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: "Open Research Smoke" } });
   check(created.data.user && !created.error, "Test user could not be created", created.error?.message);
   userId = created.data.user.id;
+  const verified = await admin.rpc("set_verified_professional_role", {
+    p_profile_id: userId,
+    p_role: "professor",
+  });
+  check(!verified.error, "Test professor could not be verified", verified.error?.message);
   const signedIn = await client.auth.signInWithPassword({ email, password });
   check(!signedIn.error, "Test user sign-in failed", signedIn.error?.message);
 

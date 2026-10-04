@@ -81,7 +81,12 @@ export function TeamPanel({ projectId }: { projectId: string | null }) {
         const d = data as { error?: string } | null;
         throw new Error(d?.error ?? error?.message ?? "Invite failed");
       }
-      setMsg({ tone: "ok", text: `${email.trim()} added as ${ROLE_LABEL[role] ?? role}.` });
+      setMsg({
+        tone: "ok",
+        text: data.invitation_sent
+          ? `Invitation sent to ${email.trim()}; project access will be ready when they accept.`
+          : `${email.trim()} added as ${ROLE_LABEL[role] ?? role}.`,
+      });
       setEmail("");
       await load();
     } catch (e) {

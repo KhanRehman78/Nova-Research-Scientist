@@ -31,6 +31,31 @@ export type Authed = {
   user: { id: string };
 };
 
+/** Enforces an authenticated, database-atomic fixed-window request limit. */
+export async function rateLimit(
+  supabase: any,
+  bucket: string,
+  limit: number,
+  windowSeconds = 3600,
+): Promise<Response | null> {
+  const { data, error } = await supabase.rpc("consume_api_rate_limit", {
+    p_bucket: bucket,
+    p_limit: limit,
+    p_window_seconds: windowSeconds,
+  });
+  if (error) {
+    console.error("Rate limiter unavailable", bucket, error);
+    return json({ error: "Request limiter is temporarily unavailable" }, 503);
+  }
+  if (data !== true) {
+    return json(
+      { error: "Too many requests. Please wait before trying this workflow again." },
+      429,
+    );
+  }
+  return null;
+}
+
 /** Privileged client for trusted writes after caller authorization succeeds. */
 export function serviceClient(): any {
   const url = Deno.env.get("SUPABASE_URL");

@@ -3,6 +3,7 @@ import {
   getAuthedClient,
   json,
   ok,
+  rateLimit,
   truncate,
 } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
@@ -43,6 +44,8 @@ Deno.serve(async (req) => {
     return json({ error: e.message }, e.status ?? 401);
   }
   const { supabase } = authed;
+  const limited = await rateLimit(supabase, "paper-reader", 30);
+  if (limited) return limited;
 
   let body: { run_id?: string } = {};
   try {

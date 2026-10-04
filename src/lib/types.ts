@@ -1,12 +1,14 @@
 export type Mode = "quick" | "deep" | "expert";
 export type ProfessionalRole = "professor" | "student" | "research_assistant" | "lab_admin";
+export type SelfAssignableRole = Extract<ProfessionalRole, "student" | "research_assistant">;
 
 export type RunStatus =
   | "pending"
   | "planning"
   | "running"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export type StageKey =
   | "plan"
@@ -28,6 +30,8 @@ export interface Profile {
   research_interests: string[];
   expertise_level: "developing" | "intermediate" | "advanced" | "expert";
   onboarding_completed: boolean;
+  privileged_role_verified: boolean;
+  role_verified_at: string | null;
   created_at: string;
 }
 

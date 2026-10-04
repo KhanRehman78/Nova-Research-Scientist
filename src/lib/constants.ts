@@ -38,14 +38,6 @@ export const SOURCES: Record<string, { label: string; color: string }> = {
   crossref: { label: "Crossref", color: "#f87171" },
 };
 
-export const STAGE_FN: Partial<Record<StageKey, string>> = {
-  search: "search-agent",
-  "paper-reader": "paper-reader",
-  gap: "reasoning-gap",
-  hypothesis: "scientist-hypothesis",
-  report: "report-writer",
-};
-
 /** Maps a run's current_stage to its page route (for "continue where you left off"). */
 export function routeForStage(stage: StageKey | null, runId: string): string {
   const found = STAGES.find((s) => s.key === stage);

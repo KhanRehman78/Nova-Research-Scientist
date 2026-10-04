@@ -220,6 +220,7 @@ export function Dashboard() {
           <textarea
             id="research-query"
             value={query}
+            maxLength={2000}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleStart();

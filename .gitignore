@@ -48,3 +48,8 @@ supabase/.branches/
 *.sln
 *.sw?
 .gemini
+.vercel
+
+# Local presentation and recording artifacts (may contain demo credentials)
+.presentation-build/
+presentation-output/

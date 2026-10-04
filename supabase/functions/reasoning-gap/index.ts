@@ -1,5 +1,5 @@
 // NOVA reasoning-gap — detects research gaps from papers + literature matrix.
-import { getAuthedClient, json, ok, truncate } from "../_shared/mod.ts";
+import { getAuthedClient, json, ok, rateLimit, truncate } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
 const GAP_SCHEMA = {
@@ -45,6 +45,8 @@ Deno.serve(async (req) => {
     return json({ error: e.message }, e.status ?? 401);
   }
   const { supabase } = authed;
+  const limited = await rateLimit(supabase, "reasoning-gap", 30);
+  if (limited) return limited;
 
   let body: { run_id?: string } = {};
   try {
