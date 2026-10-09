@@ -2,6 +2,37 @@ export type Mode = "quick" | "deep" | "expert";
 export type ProfessionalRole = "professor" | "student" | "research_assistant" | "lab_admin";
 export type SelfAssignableRole = Extract<ProfessionalRole, "student" | "research_assistant">;
 
+export type ProfessionalRoleRequestStatus = "pending" | "approved" | "rejected";
+
+export interface ProfessionalRoleRequest {
+  id: string;
+  profile_id: string;
+  requested_role: Extract<ProfessionalRole, "professor" | "lab_admin">;
+  institution: string;
+  evidence_note: string;
+  status: ProfessionalRoleRequestStatus;
+  review_note: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PricingPlan {
+  id: string;
+  name: string;
+  audience: string;
+  description: string;
+  monthly_price_pkr: number | null;
+  yearly_price_pkr: number | null;
+  features: string[];
+  cta_label: string;
+  is_featured: boolean;
+  is_active: boolean;
+  sort_order: number;
+  updated_at?: string;
+}
+
 export type RunStatus =
   | "pending"
   | "planning"
@@ -142,7 +173,14 @@ export interface Report {
   run_id: string;
   title: string;
   abstract: string | null;
-  sections_json: { sections?: { heading: string; body: string }[] };
+  sections_json: {
+    sections?: { heading: string; body: string; evidence_ids?: string[] }[];
+    evidence_summary?: {
+      source_ids?: string[];
+      limitations?: string[];
+      synthesis_note?: string;
+    };
+  };
 }
 
 export interface PlanOutput {
@@ -279,25 +317,32 @@ export interface SimilarityMatchFeedback {
 }
 
 export interface ExternalSimilaritySource {
+  provider_result_id?: string;
   rank: number;
   title: string;
   url: string | null;
   similarity: number | null;
   matched_words: number | null;
+  kind?: string;
 }
 
 export interface ExternalSimilarityScan {
   id: string;
   manuscript_id: string;
   requested_by: string | null;
-  provider: "plagaware";
+  provider: "plagaware" | "copyleaks";
   content_sha256: string;
   provider_report_id: string;
-  status: "scheduled" | "active" | "completed" | "error";
+  status: "scheduled" | "active" | "exporting" | "completed" | "error";
   overall_similarity: number | null;
   total_words: number | null;
   matched_words: number | null;
+  identical_words: number | null;
+  minor_changed_words: number | null;
+  related_meaning_words: number | null;
   credits_used: number | null;
+  sandbox: boolean;
+  purged_at: string | null;
   sources: ExternalSimilaritySource[];
   report_html_url: string | null;
   report_pdf_url: string | null;
@@ -308,6 +353,25 @@ export interface ExternalSimilarityScan {
   started_at: string | null;
   completed_at: string | null;
   updated_at: string;
+}
+
+export interface ExternalSimilarityMatch {
+  id: string;
+  scan_id: string;
+  manuscript_id: string;
+  provider_result_id: string;
+  source_rank: number;
+  source_title: string;
+  source_url: string | null;
+  match_type: "exact" | "minor_change" | "paraphrased";
+  start_offset: number;
+  end_offset: number;
+  line_start: number;
+  line_end: number;
+  matched_text: string;
+  source_excerpt: string;
+  matched_words: number | null;
+  created_at: string;
 }
 
 export interface ManuscriptVersion {

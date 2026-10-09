@@ -60,7 +60,7 @@ const EXAMPLE_QUERIES = [
 ];
 
 export function Dashboard() {
-  const { user, profile } = useAuth();
+  const { user, profile, roleRequest } = useAuth();
   const navigate = useNavigate();
   const { reset } = useRun();
   const [query, setQuery] = useState("");
@@ -209,6 +209,8 @@ export function Dashboard() {
           title={profile?.role === "professor" || profile?.role === "lab_admin" ? "Research intelligence and supervision" : "Launch autonomous research"}
           subtitle="Describe the question. NOVA plans the approach, gathers the literature, finds the gap, and drafts a hypothesis and proposal."
         />
+
+        {roleRequest?.status === "pending" ? <div className="mb-6 flex items-start gap-3 rounded-2xl border border-warning/35 bg-warning/10 p-4 text-sm text-warning"><GraduationCap size={18} className="mt-0.5 shrink-0" /><div><div className="font-medium">{ROLE_LABEL[roleRequest.requested_role]} verification pending</div><p className="mt-1 text-xs text-warning/75">Your workspace is active. Owner Admin approval will unlock the protected professor or lab workflows.</p></div></div> : null}
 
         {user ? <Link to="/professional" className="glass-soft mb-6 flex items-center justify-between gap-4 rounded-2xl border-secondary/30 p-4 transition-colors hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-ring"><span className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary/10 text-secondary"><GraduationCap size={19} /></span><span><span className="block font-heading text-base">Open {ROLE_LABEL[profile?.role ?? "student"] ?? "Professional"} Studio</span><span className="block text-xs text-foreground/50">Role-aware topic, paper, roadmap, reviewer, supervision and lab workflows.</span></span></span><ChevronRight size={18} className="shrink-0 text-secondary" /></Link> : null}
 

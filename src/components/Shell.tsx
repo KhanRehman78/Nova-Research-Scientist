@@ -18,6 +18,7 @@ import {
   TriangleAlert,
   PenLine,
   GraduationCap,
+  ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { supabase } from "../lib/supabase";
@@ -57,7 +58,7 @@ function keyFromPath(pathname: string): string {
 }
 
 export function Shell() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, isOwnerAdmin, signOut } = useAuth();
   const { runId, stages, active } = useRun();
   const location = useLocation();
   const navigate = useNavigate();
@@ -103,7 +104,9 @@ export function Shell() {
   const displayEmail = user?.email ?? "";
   const displayRole = profile?.role ? ROLE_LABEL[profile.role] : null;
 
-  const nav = useMemo(() => NAV, []);
+  const nav = useMemo(() => isOwnerAdmin
+    ? [NAV[0]!, { key: "admin", label: "Owner Admin", sub: "SaaS control plane", icon: ShieldCheck, route: () => "/admin" }, ...NAV.slice(1)]
+    : NAV, [isOwnerAdmin]);
 
   const handleSignOut = async () => {
     await signOut();

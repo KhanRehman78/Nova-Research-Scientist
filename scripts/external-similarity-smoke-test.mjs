@@ -8,6 +8,7 @@ const client = createClient(url, publishable, { auth: { persistSession: false } 
 const suffix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 const email = `nova-external-similarity-${suffix}@example.com`;
 const password = `Nova-${crypto.randomUUID()}-9!`;
+const sandbox = process.env.COPYLEAKS_LIVE_TEST !== "true";
 let userId;
 
 function check(value, message, detail) {
@@ -16,9 +17,9 @@ function check(value, message, detail) {
 
 async function invoke(body) {
   const { data, error } = await client.functions.invoke("external-similarity", { body });
-  let detail = data?.error || data?.detail || error?.message;
+  let detail = data?.detail || data?.error || error?.message;
   if (error?.context && typeof error.context.json === "function") {
-    try { const payload = await error.context.json(); detail = payload?.error || payload?.detail || detail; } catch { /* retain */ }
+    try { const payload = await error.context.json(); detail = payload?.detail || payload?.error || detail; } catch { /* retain */ }
   }
   check(!error && !data?.error, `${body.action} failed`, detail);
   return data;
@@ -69,21 +70,30 @@ try {
   });
   check(!inserted.error, "Manuscript creation failed", inserted.error?.message);
 
-  const started = await invoke({ action: "start", manuscript_id: manuscriptId, consent: true });
+  const started = await invoke({ action: "start", manuscript_id: manuscriptId, consent: true, sandbox });
   check(started.scan?.provider_report_id, "Provider report id is missing");
-  console.log(`PlagAware scan ${started.scan.provider_report_id} started with status ${started.scan.status}.`);
+  check(started.scan?.provider === "copyleaks", "Unexpected similarity provider");
+  console.log(`Copyleaks ${sandbox ? "sandbox" : "live"} scan ${started.scan.provider_report_id} started with status ${started.scan.status}.`);
 
   let result = started;
-  for (let attempt = 1; attempt <= 30 && !["completed", "error"].includes(result.scan.status); attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 12_000));
+  for (let attempt = 1; attempt <= 36 && !["completed", "error"].includes(result.scan.status); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
     result = await invoke({ action: "status", manuscript_id: manuscriptId, scan_id: started.scan.id });
     console.log(`Poll ${attempt}: ${result.scan.status}`);
   }
   check(result.scan.status === "completed", "Provider scan did not complete", result.scan.error_message || result.scan.status);
   check(typeof result.scan.overall_similarity === "number", "Completed scan is missing its similarity percentage");
   check(result.scan.content_sha256 && result.current_version, "Scan is not bound to the current manuscript version");
+  check(result.scan.purged_at, "Provider scan was not purged after results were exported");
+  const detailed = await client.from("external_similarity_matches").select("*").eq("scan_id", result.scan.id).order("start_offset");
+  check(!detailed.error, "Detailed similarity ranges could not be read", detailed.error?.message);
+  if ((result.scan.sources?.length ?? 0) > 0) check((detailed.data?.length ?? 0) > 0, "Provider sources did not produce line-wise ranges");
+  for (const match of detailed.data ?? []) {
+    check(match.line_start > 0 && match.line_end >= match.line_start, "Detailed match has invalid line coordinates");
+    check(match.end_offset > match.start_offset, "Detailed match has invalid character offsets");
+  }
 
-  const duplicate = await invoke({ action: "start", manuscript_id: manuscriptId, consent: true });
+  const duplicate = await invoke({ action: "start", manuscript_id: manuscriptId, consent: true, sandbox });
   check(duplicate.reused === true && duplicate.scan.id === result.scan.id, "Unchanged manuscript did not reuse the existing scan");
   console.log(JSON.stringify({
     status: result.scan.status,
@@ -91,10 +101,11 @@ try {
     matched_words: result.scan.matched_words,
     total_words: result.scan.total_words,
     sources: result.scan.sources?.length ?? 0,
+    highlighted_ranges: detailed.data?.length ?? 0,
     credits_used: result.scan.credits_used,
+    sandbox,
     duplicate_reused: duplicate.reused,
   }, null, 2));
 } finally {
   if (userId) await admin.auth.admin.deleteUser(userId);
 }
-

@@ -22,7 +22,9 @@ additional_redirect_urls = [
 [auth.email]
 enable_signup = true
 double_confirm_changes = true
-enable_confirmations = true
+# Direct signup is used during the public beta. Re-enable confirmations after
+# a custom SMTP provider and delivery monitoring are configured.
+enable_confirmations = false
 secure_password_change = true
 max_frequency = "1m"
 otp_length = 8
@@ -67,3 +69,6 @@ verify_jwt = true
 
 [functions.external-similarity]
 verify_jwt = true
+
+[functions.copyleaks-webhook]
+verify_jwt = false

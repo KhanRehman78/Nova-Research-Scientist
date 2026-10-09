@@ -16,6 +16,9 @@ import { ExperimentDesigner } from "./pages/ExperimentDesigner";
 import { ReportGenerator } from "./pages/ReportGenerator";
 import { WritingStudio } from "./pages/WritingStudio";
 import { ProfessionalStudio } from "./pages/ProfessionalStudio";
+import { LandingPage } from "./pages/LandingPage";
+import { OwnerAdmin } from "./pages/OwnerAdmin";
+import { OwnerPortalShell } from "./components/OwnerPortalShell";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth();
@@ -33,33 +36,45 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function RequireOwnerAdmin({ children }: { children: ReactNode }) {
+  const { session, isOwnerAdmin, loading } = useAuth();
+  if (loading) return <div className="flex min-h-screen items-center justify-center bg-background"><Spinner size={28} className="text-primary" /></div>;
+  if (!session) return <Navigate to="/auth" replace />;
+  if (!isOwnerAdmin) return <Navigate to="/auth" replace />;
+  return <>{children}</>;
+}
+
+function MainRoutes() {
+  return <Routes>
+    <Route path="/" element={<LandingPage />} />
+    <Route path="/auth" element={<AuthScreen />} />
+    <Route element={<RequireAuth><Shell /></RequireAuth>}>
+      <Route path="dashboard" element={<Dashboard />} />
+      <Route path="writing" element={<WritingStudio />} />
+      <Route path="professional" element={<ProfessionalStudio />} />
+      <Route path="plan/:runId" element={<Planning />} />
+      <Route path="knowledge/:runId" element={<KnowledgeExplorer />} />
+      <Route path="literature/:runId" element={<LiteratureRoom />} />
+      <Route path="gap/:runId" element={<GapFinder />} />
+      <Route path="hypothesis/:runId" element={<HypothesisStudio />} />
+      <Route path="experiment/:runId" element={<ExperimentDesigner />} />
+      <Route path="report/:runId" element={<ReportGenerator />} />
+    </Route>
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes>;
+}
+
+function OwnerRoutes() {
+  return <Routes>
+    <Route path="/auth" element={<AuthScreen ownerOnly />} />
+    <Route path="/admin" element={<RequireOwnerAdmin><OwnerPortalShell><OwnerAdmin /></OwnerPortalShell></RequireOwnerAdmin>} />
+    <Route path="*" element={<Navigate to="/admin" replace />} />
+  </Routes>;
+}
+
 export default function App() {
-  return (
-    <AuthProvider>
-      <BrowserRouter>
-        <RunProvider>
-          <Routes>
-            <Route path="/auth" element={<AuthScreen />} />
-            <Route
-              path="/"
-              element={<Shell />}
-            >
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="writing" element={<RequireAuth><WritingStudio /></RequireAuth>} />
-              <Route path="professional" element={<RequireAuth><ProfessionalStudio /></RequireAuth>} />
-              <Route path="plan/:runId" element={<RequireAuth><Planning /></RequireAuth>} />
-              <Route path="knowledge/:runId" element={<RequireAuth><KnowledgeExplorer /></RequireAuth>} />
-              <Route path="literature/:runId" element={<RequireAuth><LiteratureRoom /></RequireAuth>} />
-              <Route path="gap/:runId" element={<RequireAuth><GapFinder /></RequireAuth>} />
-              <Route path="hypothesis/:runId" element={<RequireAuth><HypothesisStudio /></RequireAuth>} />
-              <Route path="experiment/:runId" element={<RequireAuth><ExperimentDesigner /></RequireAuth>} />
-              <Route path="report/:runId" element={<RequireAuth><ReportGenerator /></RequireAuth>} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Route>
-          </Routes>
-        </RunProvider>
-      </BrowserRouter>
-    </AuthProvider>
-  );
+  const ownerPortal = import.meta.env.VITE_APP_SURFACE === "owner";
+  return <AuthProvider><BrowserRouter><RunProvider>
+    {ownerPortal ? <OwnerRoutes /> : <MainRoutes />}
+  </RunProvider></BrowserRouter></AuthProvider>;
 }

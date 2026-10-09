@@ -2,7 +2,7 @@
 import { getAuthedClient, json, ok, rateLimit, serviceClient, truncate } from "../_shared/mod.ts";
 import { llmJson } from "../_shared/llm.ts";
 
-const WRITING_PROMPT_VERSION = "academic-editor-v2-cost-aware";
+const WRITING_PROMPT_VERSION = "academic-editor-v3-evidence-ledger";
 
 const SUGGESTION_SCHEMA = {
   type: "object",
@@ -85,31 +85,46 @@ Deno.serve(async (req) => {
       return json({ error: "Link a completed research run before generating a draft" }, 400);
     }
 
-    const [runResult, reportResult, papersResult, gapResult, hypothesisResult, experimentResult] = await Promise.all([
+    const [runResult, reportResult, papersResult, matrixResult, gapResult, hypothesisResult, experimentResult] = await Promise.all([
       supabase.from("research_runs").select("query, mode, status").eq("id", manuscript.research_run_id).single(),
       supabase.from("reports").select("title, abstract, sections_json").eq("run_id", manuscript.research_run_id).maybeSingle(),
-      supabase.from("papers").select("title, authors, year, doi, url, abstract").eq("run_id", manuscript.research_run_id).order("citation_count", { ascending: false }).limit(30),
+      supabase.from("papers").select("id, title, authors, year, doi, url, abstract").eq("run_id", manuscript.research_run_id).order("citation_count", { ascending: false }).limit(30),
+      supabase.from("literature_matrix").select("paper_id, evidence_scope, evidence_excerpt, method, dataset, result, problem").eq("run_id", manuscript.research_run_id).limit(30),
       supabase.from("gaps").select("title, statement, opportunity").eq("run_id", manuscript.research_run_id).maybeSingle(),
       supabase.from("hypotheses").select("title, hypothesis, objectives, expected_contribution").eq("run_id", manuscript.research_run_id).maybeSingle(),
       supabase.from("experiments").select("dataset, algorithm, architecture_json, metrics_json").eq("run_id", manuscript.research_run_id).maybeSingle(),
     ]);
     if (runResult.error || !runResult.data) return json({ error: "Linked research run is unavailable" }, 404);
 
-    const sources = (papersResult.data ?? []).map((paper: any, index: number) => ({
-      source_id: `P${index + 1}`,
-      title: paper.title,
-      authors: paper.authors,
-      year: paper.year,
-      doi: paper.doi,
-      url: paper.url,
-      abstract: truncate(paper.abstract, 1000),
-    }));
+    const sourceIdByPaper = new Map<string, string>();
+    const sources = (papersResult.data ?? []).map((paper: any, index: number) => {
+      const sourceId = `P${index + 1}`;
+      sourceIdByPaper.set(paper.id, sourceId);
+      return {
+        source_id: sourceId,
+        title: paper.title,
+        authors: paper.authors,
+        year: paper.year,
+        doi: paper.doi,
+        url: paper.url,
+        abstract: truncate(paper.abstract, 1000),
+      };
+    });
+    const evidenceLedger = (matrixResult.data ?? []).map((entry: any) => ({
+      source_id: sourceIdByPaper.get(entry.paper_id) ?? null,
+      evidence_scope: entry.evidence_scope || "metadata_or_abstract_only",
+      supporting_excerpt: truncate(entry.evidence_excerpt, 700),
+      method: entry.method,
+      dataset: entry.dataset,
+      result: entry.result,
+      problem: entry.problem,
+    })).filter((entry: any) => entry.source_id);
 
     let output: any;
     try {
       output = await llmJson({
         system:
-          "You are NOVA's transparent academic writing assistant. Draft a rigorous research manuscript in Markdown from only the supplied research record. Never invent results, experiments, citations, author names, DOIs, ethics approvals, participant counts, or statistics. Clearly label proposed/future work as proposed. Cite sources inline using their exact [P#] IDs and include a References section containing only supplied sources. Use conventional sections: Abstract, Introduction, Related Work, Methods, Expected Results or Results as supported, Discussion, Limitations, Conclusion, References. If evidence is absent, state the limitation instead of filling it in. Return a clear AI-assistance disclosure.",
+          "You are NOVA's transparent, evidence-grounded academic writing assistant. Draft a rigorous manuscript in Markdown from only the supplied research record. Every factual literature claim must cite one or more exact [P#] IDs. Never invent results, experiments, citations, author names, DOIs, ethics approvals, participant counts, or statistics. Respect each evidence_scope: metadata-only or abstract-only evidence cannot support detailed claims about methods or results. Compare sources, expose disagreement and uncertainty, and clearly label proposed or future work as proposed. Synthesize in original prose without close paraphrase; use no quotation unless the supplied text supports it and it is clearly marked. Include a References section containing only supplied sources and an Evidence Limitations section. If evidence is absent, state the limitation instead of filling it in. Return a clear AI-assistance disclosure; do not claim plagiarism-free or detector-proof authorship.",
         user: JSON.stringify({
           untrusted_manuscript_metadata: {
             requested_title: manuscript.title,
@@ -123,6 +138,7 @@ Deno.serve(async (req) => {
           hypothesis: hypothesisResult.data,
           experiment: experimentResult.data,
           verified_source_record: sources,
+          evidence_ledger: evidenceLedger,
         }),
         schemaName: "grounded_manuscript_draft",
         schema: DRAFT_SCHEMA,
@@ -134,6 +150,18 @@ Deno.serve(async (req) => {
 
     const content = String(output.content ?? "").trim();
     if (content.length < 500) return json({ error: "Generated draft was incomplete; please retry" }, 502);
+    const validSourceIds = new Set(sources.map((source: any) => source.source_id));
+    const citedSourceIds = Array.from(new Set(content.match(/\bP\d+\b/g) ?? []));
+    const invalidSourceIds = citedSourceIds.filter((sourceId) => !validSourceIds.has(sourceId));
+    if (invalidSourceIds.length) {
+      return json({
+        error: "Draft failed evidence validation",
+        detail: `Unknown source IDs: ${invalidSourceIds.join(", ")}`,
+      }, 502);
+    }
+    if (sources.length > 0 && !(content.match(/\[P\d+(?:\s*,\s*P\d+)*\]/g) ?? []).length) {
+      return json({ error: "Draft failed evidence validation", detail: "No inline source citations were produced" }, 502);
+    }
 
     const disclosure = String(output.disclosure || "AI-assisted drafting was used in NOVA. The authors reviewed and remain responsible for all claims, citations, analysis, and final text.");
     const { data: saved, error: saveError } = await supabase

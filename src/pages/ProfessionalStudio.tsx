@@ -79,7 +79,7 @@ function ResultValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
 }
 
 export function ProfessionalStudio() {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, roleRequest, refreshProfile } = useAuth();
   const [projects, setProjects] = useState<ResearchProject[]>([]);
   const [projectId, setProjectId] = useState("");
   const [runs, setRuns] = useState<ResearchRun[]>([]);
@@ -107,6 +107,8 @@ export function ProfessionalStudio() {
   const [department, setDepartment] = useState("");
   const [interests, setInterests] = useState("");
   const [expertise, setExpertise] = useState("developing");
+  const [requestedPrivilegedRole, setRequestedPrivilegedRole] = useState<"professor" | "lab_admin">("professor");
+  const [roleEvidence, setRoleEvidence] = useState("");
 
   const [studentId, setStudentId] = useState("");
   const [researchTitle, setResearchTitle] = useState("");
@@ -188,6 +190,19 @@ export function ProfessionalStudio() {
     });
     setBusy(null);
     if (rpcError) { setError(rpcError.message); return; }
+    await refreshProfile();
+  };
+
+  const requestPrivilegedRole = async () => {
+    if (!institution.trim()) { setError("Add your university or research institution before requesting verified access."); return; }
+    setBusy("role-request"); setError(null);
+    const { error: requestError } = await supabase.rpc("request_professional_role", {
+      p_requested_role: requestedPrivilegedRole,
+      p_institution: institution.trim(),
+      p_evidence_note: roleEvidence.trim(),
+    });
+    setBusy(null);
+    if (requestError) { setError(requestError.message); return; }
     await refreshProfile();
   };
 
@@ -287,6 +302,11 @@ export function ProfessionalStudio() {
         {(profile?.role === "professor" || profile?.role === "lab_admin") && !profile.privileged_role_verified ? (
           <ErrorBanner className="mb-5">This privileged role is awaiting administrator verification. Professor and Lab Admin workflows remain locked until verification is complete.</ErrorBanner>
         ) : null}
+        {roleRequest?.status === "pending" ? (
+          <div className="mb-5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">Your {ROLE_LABEL[roleRequest.requested_role]} request is pending Owner Admin review. Student research tools remain available while verification is completed.</div>
+        ) : null}
+
+        {!privilegedProfileRole && roleRequest?.status !== "pending" ? <section className="glass-soft mb-6 rounded-2xl p-4"><div className="flex flex-wrap items-end gap-3"><div className="min-w-56 flex-1"><div className="text-sm font-medium">Request verified professional access</div><p className="mt-1 text-xs text-foreground/45">Professor and Lab Admin tools require Owner Admin approval.</p></div><select value={requestedPrivilegedRole} onChange={(event) => setRequestedPrivilegedRole(event.target.value as "professor" | "lab_admin")} className={`${FIELD} w-auto min-w-48`}><option value="professor">Professor</option><option value="lab_admin">Research Lab Admin</option></select><input value={roleEvidence} onChange={(event) => setRoleEvidence(event.target.value)} placeholder="Department, official profile or verification note" className={`${FIELD} min-w-64 flex-1`} /><Button variant="secondary" onClick={() => void requestPrivilegedRole()} disabled={busy === "role-request"}>{busy === "role-request" ? <Spinner size={14} /> : <ShieldCheck size={14} />}Submit request</Button></div>{roleRequest?.status === "rejected" ? <p className="mt-3 text-xs text-destructive">Previous request needs more verification: {roleRequest.review_note || "Contact the Owner Admin."}</p> : null}</section> : null}
 
         {!profile?.onboarding_completed ? (
           <section className="glass-panel mb-6 rounded-3xl border-primary/30 p-6">
