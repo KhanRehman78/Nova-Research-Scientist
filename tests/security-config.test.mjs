@@ -82,7 +82,7 @@ test("paid edge workflows use the shared database rate limiter", async () => {
     "research-manager", "search-agent", "paper-reader", "reasoning-gap",
     "scientist-hypothesis", "report-writer", "invite-member",
     "writing-assistant", "paper-validator", "professional-agent",
-    "open-research", "external-similarity",
+    "open-research", "external-similarity", "plagaware-similarity",
   ];
   for (const name of functions) {
     const source = await read(`supabase/functions/${name}/index.ts`);
@@ -127,6 +127,18 @@ test("Copyleaks results are version-bound and line ranges are protected by RLS",
   assert.match(webhook, /line_start/);
   assert.match(writing, /HighlightedManuscript/);
   assert.match(writing, /Line-wise high-risk overlap review/);
+});
+
+test("PlagAware remains an authenticated, consent-based independent second opinion", async () => {
+  const config = await read("supabase/config.toml");
+  const functionSource = await read("supabase/functions/plagaware-similarity/index.ts");
+  const writing = await read("src/pages/WritingStudio.tsx");
+  assert.match(config, /\[functions\.plagaware-similarity\]\s+verify_jwt = true/m);
+  assert.match(functionSource, /PLAGAWARE_USER_CODE/);
+  assert.match(functionSource, /Explicit consent is required/);
+  assert.match(functionSource, /contentHash/);
+  assert.match(functionSource, /rateLimit\(supabase, "plagaware-similarity"/);
+  assert.match(writing, /PlagAware second-opinion scan/);
 });
 
 test("the complete research and professional feature surface is wired", async () => {

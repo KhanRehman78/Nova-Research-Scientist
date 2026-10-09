@@ -587,15 +587,15 @@ Reviewers can attach one of four stored verdicts to an individual match: **Confi
 
 ### Important scientific limitation
 
-The NOVA score is **not a definitive plagiarism percentage** because no lawful private product has universal access to every publisher archive, student-paper repository, or webpage. The built-in flow is fully operational without PlagAware. A separate PlagAware connector remains available only as an optional, default-disabled external scan for customers who later choose to fund it. If enabled, the external flow:
+The NOVA score is **not a definitive plagiarism percentage** because no lawful private product has universal access to every publisher archive, student-paper repository, or webpage. NOVA uses three complementary layers: its privacy-scoped first-party corpus, Copyleaks for line-wise exact/lightly-changed/paraphrased web overlap, and PlagAware as an independent web-corpus second opinion. External scores are never averaged into a misleading universal percentage. Each optional provider flow:
 
 - requires explicit user consent before manuscript text leaves NOVA;
 - removes References/Bibliography/Works Cited from submitted screening text;
 - keeps the provider credential in a Supabase Edge secret;
 - records provider status, similarity percentage, matched and total words, ScanCredits, sources, report links, timestamps, and manuscript SHA-256;
 - reuses an existing scan for an unchanged manuscript hash to prevent duplicate credit consumption;
-- keeps PlagAware and NOVA percentages separate because their corpora and methods differ;
-- exposes provider-reported sources and links to the detailed hosted HTML/PDF report;
+- keeps NOVA, Copyleaks and PlagAware percentages separate because their corpora and methods differ;
+- exposes provider-reported sources and detailed evidence available from that provider;
 - requires contextual human review for every reported match.
 
 The built-in score does not search or prove coverage of:
@@ -970,21 +970,21 @@ The production Supabase test additionally verified:
 - Paper Validator and first-party similarity-screening backend
 - Privacy-scoped NOVA corpus, sampled fingerprints, reviewer feedback, RLS, explicit sharing consent, and reversible opt-out
 - Cost-aware writing and validation caches with bounded OpenAI request settings
-- Optional PlagAware external web-similarity schema, RLS, Edge Function, consent flow, version binding, and UI; disabled by default
+- Copyleaks line-wise web-similarity and PlagAware second-opinion connectors with RLS, explicit consent, version binding, duplicate-credit prevention, rate limits, and separate UI reports
 - Open Research enrichment and global grant backend
 - Journal-profile, citation-library, and manuscript-comment schema
 - OpenAI secret integration through Supabase
 - OpenAlex and Unpaywall secret integration through Supabase
-- PlagAware user code stored as a protected Supabase Edge secret
+- Copyleaks credentials, webhook secret, and PlagAware user code stored as protected Supabase Edge secrets
 
-### Optional PlagAware provider status
+### External provider status
 
-- The supplied PlagAware user code was accepted by the provider endpoint.
-- A non-billable dry-run reached PlagAware successfully.
-- PlagAware returned `Not enough Scan Credits`; therefore a real completed provider report could not yet be produced.
+- Copyleaks sandbox authentication, submission, secure callbacks, detailed export, line-range mapping, and purge were verified end to end.
+- One live Copyleaks web-only scan completed successfully, returned 0% similarity, and consumed 2 credits without indexing the manuscript in the provider database.
+- The supplied PlagAware user code was accepted by the provider endpoint and a non-billable dry-run reached PlagAware successfully.
+- PlagAware previously returned `Not enough Scan Credits`; a live PlagAware completion still requires available ScanCredits.
 - NOVA's first-party similarity workflow is independent of this provider and remains fully available.
-- The external connector is disabled by default, so it cannot consume provider credits accidentally.
-- Claiming an allowance or adding ScanCredits is necessary only if an operator deliberately enables this optional connector.
+- Both external connectors require explicit per-provider consent, preserve the exact manuscript SHA-256, and reuse unchanged-version results to avoid duplicate credit consumption.
 
 ### Ready for Vercel deployment
 

@@ -393,7 +393,7 @@ Deno.serve(async (req) => {
       ? admin.from("paper_fulltexts").select("paper_id, source, source_url, license, content").eq("run_id", manuscript.research_run_id).eq("retrieval_status", "available").limit(70)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("journal_profiles").select("id,journal_name,rules,evidence,status,updated_at").eq("manuscript_id", manuscript.id).maybeSingle(),
-    supabase.from("external_similarity_scans").select("*").eq("manuscript_id", manuscript.id).eq("content_sha256", contentHash).order("requested_at", { ascending: false }).limit(1),
+    supabase.from("external_similarity_scans").select("*").eq("manuscript_id", manuscript.id).eq("content_sha256", contentHash).order("requested_at", { ascending: false }).limit(4),
     admin.rpc("get_nova_similarity_candidates", {
       p_manuscript_id: manuscript.id,
       p_user_id: user.id,
@@ -655,25 +655,30 @@ Deno.serve(async (req) => {
     });
   }
 
-  const externalScan = externalScanResult.data?.[0] ?? null;
-  if (externalScan?.status === "completed") {
-    findings.push({
-      category: "originality",
-      severity: "human_review",
-      title: `External web similarity requires contextual review: ${Number(externalScan.overall_similarity ?? 0).toFixed(2)}%`,
-      description: `PlagAware screened this exact manuscript version and reported ${externalScan.sources?.length ?? 0} matching source(s). This external score measures overlap in the provider corpus; it does not prove plagiarism or cover every proprietary publication and student-paper repository.`,
-      recommendation: "Open the detailed provider report, assess quotation and citation context for every source, document corrective edits, and obtain qualified human review before submission.",
-      evidence: { external_similarity_scan_id: externalScan.id, provider: externalScan.provider, external_similarity: externalScan.overall_similarity, sources: externalScan.sources?.length ?? 0, local_similarity_score: similarity.overall, proprietary_database_coverage: false },
-    });
-  } else if (externalScan) {
-    findings.push({
-      category: "originality",
-      severity: "info",
-      title: "Optional external similarity scan is not complete",
-      description: `NOVA's first-party scan completed independently. The optional PlagAware connector currently has status ${externalScan.status}.`,
-      recommendation: "No external provider is required for NOVA's first-party report. Refresh the optional connector only if you specifically need its separate corpus result.",
-      evidence: { external_similarity_scan_id: externalScan.id, external_status: externalScan.status, local_similarity_score: similarity.overall, external_provider_required: false },
-    });
+  const externalScans = (externalScanResult.data ?? []).filter((scan: any, index: number, scans: any[]) =>
+    scans.findIndex((candidate) => candidate.provider === scan.provider) === index
+  );
+  for (const externalScan of externalScans) {
+    const providerName = externalScan.provider === "copyleaks" ? "Copyleaks" : "PlagAware";
+    if (externalScan.status === "completed") {
+      findings.push({
+        category: "originality",
+        severity: "human_review",
+        title: `${providerName} similarity requires contextual review: ${Number(externalScan.overall_similarity ?? 0).toFixed(2)}%`,
+        description: `${providerName} screened this exact manuscript version and reported ${externalScan.sources?.length ?? 0} matching source(s). Its independent score measures overlap in that provider's corpus; it does not prove plagiarism or guarantee coverage of every publication and student-paper repository.`,
+        recommendation: "Compare both provider reports where available, assess quotation and citation context for every source, document corrective edits, and obtain qualified human review before submission.",
+        evidence: { external_similarity_scan_id: externalScan.id, provider: externalScan.provider, external_similarity: externalScan.overall_similarity, sources: externalScan.sources?.length ?? 0, local_similarity_score: similarity.overall, proprietary_database_coverage: false },
+      });
+    } else {
+      findings.push({
+        category: "originality",
+        severity: "info",
+        title: `${providerName} similarity scan is not complete`,
+        description: `NOVA's first-party scan completed independently. The optional ${providerName} connector currently has status ${externalScan.status}.`,
+        recommendation: "Refresh this provider only if its separate corpus result is needed; do not treat an incomplete external scan as a zero-similarity result.",
+        evidence: { external_similarity_scan_id: externalScan.id, provider: externalScan.provider, external_status: externalScan.status, local_similarity_score: similarity.overall, external_provider_required: false },
+      });
+    }
   }
 
   const rows = findings.map((finding) => ({

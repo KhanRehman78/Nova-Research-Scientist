@@ -72,7 +72,7 @@ import { Button, Chip, EmptyState, ErrorBanner, PageHeader, Spinner } from "../c
 
 type Tab = "write" | "sources" | "validate" | "submission";
 type ProjectOption = { id: string; name: string };
-type BusyAction = "create" | "save" | "analyze" | "draft" | "validate" | "external-scan" | "external-status" | "corpus" | "feedback" | "upload" | "signoff" | "finalize" | "export" | "enrich" | "journal" | "citation" | "comment" | null;
+type BusyAction = "create" | "save" | "analyze" | "draft" | "validate" | "external-scan" | "external-status" | "plagaware-scan" | "plagaware-status" | "corpus" | "feedback" | "upload" | "signoff" | "finalize" | "export" | "enrich" | "journal" | "citation" | "comment" | null;
 
 const FIELD_CLASS = "w-full rounded-xl border border-border bg-panel px-3 py-2 text-sm text-foreground placeholder:text-foreground/35 focus:border-primary focus:outline-2 focus:outline-primary/40";
 const ENABLE_EXTERNAL_PROVIDER = import.meta.env.VITE_ENABLE_EXTERNAL_SIMILARITY === "true";
@@ -166,8 +166,10 @@ export function WritingStudio() {
   const [similarityMatches, setSimilarityMatches] = useState<SimilarityMatch[]>([]);
   const [matchFeedback, setMatchFeedback] = useState<SimilarityMatchFeedback[]>([]);
   const [externalScan, setExternalScan] = useState<ExternalSimilarityScan | null>(null);
+  const [plagAwareScan, setPlagAwareScan] = useState<ExternalSimilarityScan | null>(null);
   const [externalMatches, setExternalMatches] = useState<ExternalSimilarityMatch[]>([]);
   const [externalConsent, setExternalConsent] = useState(false);
+  const [plagAwareConsent, setPlagAwareConsent] = useState(false);
   const [linkedPapers, setLinkedPapers] = useState<Paper[]>([]);
   const [fullTexts, setFullTexts] = useState<PaperFullText[]>([]);
   const [journalProfile, setJournalProfile] = useState<JournalProfile | null>(null);
@@ -241,7 +243,7 @@ export function WritingStudio() {
   useEffect(() => {
     if (!manuscript?.id) {
       setSuggestions([]); setFindings([]); setDocuments([]); setVersions([]); setSignoffs([]);
-      setSimilarityReport(null); setSimilarityMatches([]); setMatchFeedback([]); setExternalScan(null); setExternalMatches([]); setExternalConsent(false);
+      setSimilarityReport(null); setSimilarityMatches([]); setMatchFeedback([]); setExternalScan(null); setPlagAwareScan(null); setExternalMatches([]); setExternalConsent(false); setPlagAwareConsent(false);
       setLinkedPapers([]); setFullTexts([]); setJournalProfile(null); setCitations([]); setComments([]);
       return;
     }
@@ -257,7 +259,7 @@ export function WritingStudio() {
         supabase.from("similarity_reports").select("*").eq("manuscript_id", manuscriptId).maybeSingle(),
         supabase.from("similarity_matches").select("*").eq("manuscript_id", manuscriptId).order("similarity", { ascending: false }),
         supabase.from("similarity_match_feedback").select("*").eq("manuscript_id", manuscriptId).order("created_at", { ascending: false }),
-        supabase.from("external_similarity_scans").select("*").eq("manuscript_id", manuscriptId).order("requested_at", { ascending: false }).limit(1),
+        supabase.from("external_similarity_scans").select("*").eq("manuscript_id", manuscriptId).order("requested_at", { ascending: false }).limit(10),
         supabase.from("external_similarity_matches").select("*").eq("manuscript_id", manuscriptId).order("start_offset"),
         supabase.from("journal_profiles").select("*").eq("manuscript_id", manuscriptId).maybeSingle(),
         supabase.from("manuscript_citations").select("*").eq("manuscript_id", manuscriptId).order("created_at"),
@@ -274,7 +276,9 @@ export function WritingStudio() {
       setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
       setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
       setMatchFeedback((feedbackRows.data ?? []) as SimilarityMatchFeedback[]);
-      setExternalScan(((externalScanRows.data ?? [])[0] ?? null) as ExternalSimilarityScan | null);
+      const providerScans = (externalScanRows.data ?? []) as ExternalSimilarityScan[];
+      setExternalScan(providerScans.find((scan) => scan.provider === "copyleaks") ?? null);
+      setPlagAwareScan(providerScans.find((scan) => scan.provider === "plagaware") ?? null);
       setExternalMatches((externalMatchRows.data ?? []) as ExternalSimilarityMatch[]);
       setJournalProfile((journalRow.data ?? null) as JournalProfile | null);
       setCitations((citationRows.data ?? []) as ManuscriptCitation[]);
@@ -300,6 +304,7 @@ export function WritingStudio() {
   const currentSimilarityReport = similarityReport?.content_sha256 === contentHash ? similarityReport : null;
   const currentSimilarityMatches = currentSimilarityReport ? similarityMatches : [];
   const currentExternalScan = externalScan?.content_sha256 === contentHash ? externalScan : null;
+  const currentPlagAwareScan = plagAwareScan?.content_sha256 === contentHash ? plagAwareScan : null;
   const currentExternalMatches = currentExternalScan ? externalMatches.filter((item) => item.scan_id === currentExternalScan.id) : [];
   const isReady = manuscript?.status === "submission_ready";
 
@@ -319,7 +324,7 @@ export function WritingStudio() {
       supabase.from("similarity_reports").select("*").eq("manuscript_id", id).maybeSingle(),
       supabase.from("similarity_matches").select("*").eq("manuscript_id", id).order("similarity", { ascending: false }),
       supabase.from("similarity_match_feedback").select("*").eq("manuscript_id", id).order("created_at", { ascending: false }),
-      supabase.from("external_similarity_scans").select("*").eq("manuscript_id", id).order("requested_at", { ascending: false }).limit(1),
+      supabase.from("external_similarity_scans").select("*").eq("manuscript_id", id).order("requested_at", { ascending: false }).limit(10),
       supabase.from("external_similarity_matches").select("*").eq("manuscript_id", id).order("start_offset"),
       supabase.from("journal_profiles").select("*").eq("manuscript_id", id).maybeSingle(),
       supabase.from("manuscript_citations").select("*").eq("manuscript_id", id).order("created_at"),
@@ -335,7 +340,9 @@ export function WritingStudio() {
     setSimilarityReport((similarityReportRow.data ?? null) as SimilarityReport | null);
     setSimilarityMatches((similarityMatchRows.data ?? []) as SimilarityMatch[]);
     setMatchFeedback((feedbackRows.data ?? []) as SimilarityMatchFeedback[]);
-    setExternalScan(((externalScanRows.data ?? [])[0] ?? null) as ExternalSimilarityScan | null);
+    const providerScans = (externalScanRows.data ?? []) as ExternalSimilarityScan[];
+    setExternalScan(providerScans.find((scan) => scan.provider === "copyleaks") ?? null);
+    setPlagAwareScan(providerScans.find((scan) => scan.provider === "plagaware") ?? null);
     setExternalMatches((externalMatchRows.data ?? []) as ExternalSimilarityMatch[]);
     setJournalProfile((journalRow.data ?? null) as JournalProfile | null);
     setCitations((citationRows.data ?? []) as ManuscriptCitation[]);
@@ -642,6 +649,35 @@ export function WritingStudio() {
       const matches = await supabase.from("external_similarity_matches").select("*").eq("scan_id", data.scan.id).order("start_offset");
       setExternalMatches((matches.data ?? []) as ExternalSimilarityMatch[]);
       setNotice(data.scan.status === "completed" ? "Copyleaks web similarity report is ready. Review every highlighted passage and source in context." : `Copyleaks scan status: ${labelize(data.scan.status)}.`);
+    }
+    setBusy(null);
+  };
+
+  const startPlagAwareScan = async () => {
+    if (!manuscript || !plagAwareConsent) return;
+    if (dirty && !await persistManuscript()) return;
+    setBusy("plagaware-scan"); setError(null); setNotice(null);
+    const { data, error: invokeError } = await supabase.functions.invoke("plagaware-similarity", {
+      body: { action: "start", manuscript_id: manuscript.id, consent: true },
+    });
+    if (invokeError || data?.error) setError(await functionErrorMessage(invokeError, data, "PlagAware scan could not be started."));
+    else {
+      setPlagAwareScan(data.scan as ExternalSimilarityScan);
+      setNotice(data.reused ? "The existing PlagAware scan for this exact version was reused; no additional credits were consumed." : "PlagAware second-opinion scan started. Refresh after processing completes.");
+    }
+    setBusy(null);
+  };
+
+  const refreshPlagAwareScan = async () => {
+    if (!manuscript || !plagAwareScan) return;
+    setBusy("plagaware-status"); setError(null); setNotice(null);
+    const { data, error: invokeError } = await supabase.functions.invoke("plagaware-similarity", {
+      body: { action: "status", manuscript_id: manuscript.id, scan_id: plagAwareScan.id },
+    });
+    if (invokeError || data?.error) setError(await functionErrorMessage(invokeError, data, "PlagAware status could not be refreshed."));
+    else {
+      setPlagAwareScan(data.scan as ExternalSimilarityScan);
+      setNotice(data.scan.status === "completed" ? "PlagAware second-opinion report is ready. Compare its sources with Copyleaks and review each match in context." : `PlagAware scan status: ${labelize(data.scan.status)}.`);
     }
     setBusy(null);
   };
@@ -1074,6 +1110,38 @@ export function WritingStudio() {
                       </div> : currentExternalScan.status === "completed" ? <p className="mt-4 rounded-xl border border-success/25 bg-success/10 px-4 py-3 text-xs text-success">No detailed overlapping ranges were returned for this version.</p> : null}
                       <div className="mt-4 flex flex-wrap gap-2">{currentExternalScan.report_html_url ? <a href={currentExternalScan.report_html_url} target="_blank" rel="noreferrer"><Button variant="secondary" size="sm"><FileText size={13} />Open detailed report</Button></a> : null}{currentExternalScan.report_pdf_url ? <a href={currentExternalScan.report_pdf_url} target="_blank" rel="noreferrer"><Button variant="secondary" size="sm"><Download size={13} />Open provider PDF</Button></a> : null}</div>
                       <p className="mt-4 rounded-xl border border-border bg-panel/60 px-4 py-3 text-xs leading-relaxed text-foreground/50">{currentExternalScan.disclaimer} Requested {formatDate(currentExternalScan.requested_at)}.</p>
+                    </div> : null}
+                  </section> : null}
+                  {ENABLE_EXTERNAL_PROVIDER ? <section className="glass-panel rounded-3xl p-5 sm:p-6" aria-labelledby="plagaware-similarity-heading">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><ScanSearch size={21} /></div>
+                        <div><h3 id="plagaware-similarity-heading" className="font-heading text-xl text-foreground">PlagAware second-opinion scan</h3><p className="mt-1 max-w-2xl text-sm text-foreground/55">Independent web-corpus screening to cross-check Copyleaks. Results remain separate so differences in provider coverage are visible instead of being hidden inside an inaccurate combined percentage.</p></div>
+                      </div>
+                      {currentPlagAwareScan ? <Chip tone={statusTone(currentPlagAwareScan.status)}>PlagAware · {labelize(currentPlagAwareScan.status)}</Chip> : <Chip tone="default">Not screened</Chip>}
+                    </div>
+
+                    <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-panel/70 px-4 py-3 text-xs leading-relaxed text-foreground/60">
+                      <input type="checkbox" checked={plagAwareConsent} onChange={(event) => setPlagAwareConsent(event.target.checked)} className="mt-0.5 accent-primary" />
+                      <span>I consent to sending this exact saved manuscript to PlagAware for a separate second-opinion scan. The references section is excluded and the scan may consume PlagAware ScanCredits.</span>
+                    </label>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button onClick={() => void startPlagAwareScan()} disabled={Boolean(busy) || dirty || !plagAwareConsent || manuscript.content.trim().length < 500}>{busy === "plagaware-scan" ? <Spinner size={14} /> : <ScanSearch size={14} />}{currentPlagAwareScan ? "Reuse current-version scan" : "Start PlagAware scan"}</Button>
+                      {plagAwareScan ? <Button variant="secondary" onClick={() => void refreshPlagAwareScan()} disabled={Boolean(busy)}>{busy === "plagaware-status" ? <Spinner size={14} /> : <RefreshCcw size={14} />}Refresh result</Button> : null}
+                    </div>
+                    {plagAwareScan && !currentPlagAwareScan ? <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs text-warning">The available PlagAware result belongs to an earlier manuscript version. Scan again only after the current draft is stable.</p> : null}
+
+                    {currentPlagAwareScan ? <div className="mt-5">
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-2xl border border-primary/25 bg-primary/10 p-4"><div className="font-mono text-3xl font-semibold text-primary">{currentPlagAwareScan.overall_similarity == null ? "—" : `${currentPlagAwareScan.overall_similarity.toFixed(2)}%`}</div><div className="mt-1 text-xs uppercase tracking-wider text-foreground/45">PlagAware similarity</div></div>
+                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentPlagAwareScan.matched_words?.toLocaleString() ?? "—"}</div><div className="mt-1 text-xs text-foreground/45">Matched words</div></div>
+                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentPlagAwareScan.sources?.length ?? 0}</div><div className="mt-1 text-xs text-foreground/45">Reported sources</div></div>
+                        <div className="rounded-2xl border border-border bg-panel p-4"><div className="font-mono text-2xl text-foreground">{currentPlagAwareScan.credits_used ?? "—"}</div><div className="mt-1 text-xs text-foreground/45">ScanCredits used</div></div>
+                      </div>
+                      {currentPlagAwareScan.error_message ? <ErrorBanner>{currentPlagAwareScan.error_message}</ErrorBanner> : null}
+                      {currentPlagAwareScan.sources?.length ? <div className="mt-5"><h4 className="text-sm font-medium text-foreground">PlagAware-reported sources</h4><div className="mt-3 grid gap-3 lg:grid-cols-2">{currentPlagAwareScan.sources.map((source) => <article key={`${source.rank}-${source.url ?? source.title}`} className="rounded-xl border border-border bg-panel p-3"><div className="text-sm font-medium text-foreground">{source.title}</div><div className="mt-1 flex flex-wrap gap-2 text-[11px] text-foreground/45">{source.similarity != null ? <span>{source.similarity.toFixed(2)}% source match</span> : null}{source.matched_words != null ? <span>· {source.matched_words} words</span> : null}</div>{source.url ? <a href={source.url} target="_blank" rel="noreferrer" className="mt-2 inline-block break-all text-xs text-primary hover:underline">Open matching source</a> : null}</article>)}</div></div> : null}
+                      <div className="mt-4 flex flex-wrap gap-2">{currentPlagAwareScan.report_html_url ? <a href={currentPlagAwareScan.report_html_url} target="_blank" rel="noreferrer"><Button variant="secondary" size="sm"><FileText size={13} />Open detailed report</Button></a> : null}{currentPlagAwareScan.report_pdf_url ? <a href={currentPlagAwareScan.report_pdf_url} target="_blank" rel="noreferrer"><Button variant="secondary" size="sm"><Download size={13} />Open provider PDF</Button></a> : null}</div>
+                      <p className="mt-4 rounded-xl border border-border bg-panel/60 px-4 py-3 text-xs leading-relaxed text-foreground/50">{currentPlagAwareScan.disclaimer} Requested {formatDate(currentPlagAwareScan.requested_at)}.</p>
                     </div> : null}
                   </section> : null}
                   {manuscript.readiness?.gates?.length ? <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{manuscript.readiness.gates.map((gate) => <div key={gate.key} className="glass-soft rounded-2xl p-4"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium text-foreground">{gate.label}</span><Chip tone={statusTone(gate.status)}>{labelize(gate.status)}</Chip></div><p className="mt-2 text-xs leading-relaxed text-foreground/55">{gate.detail}</p></div>)}</section> : null}

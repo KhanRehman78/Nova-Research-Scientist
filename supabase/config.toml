@@ -70,5 +70,8 @@ verify_jwt = true
 [functions.external-similarity]
 verify_jwt = true
 
+[functions.plagaware-similarity]
+verify_jwt = true
+
 [functions.copyleaks-webhook]
 verify_jwt = false
